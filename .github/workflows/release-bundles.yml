@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
@@ -108,6 +110,73 @@ PY
             pkg/package.json
             pkg/LICENSE
             pkg/README.md
+
+  build-demo:
+    name: Build demo
+    needs: [prepare, build-wasm-pkg]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rhwp-studio/package-lock.json
+
+      - name: Download WASM pkg artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: uni-hwp-wasm-pkg
+          path: pkg
+
+      - name: Install frontend dependencies
+        working-directory: rhwp-studio
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Build demo bundle
+        working-directory: rhwp-studio
+        env:
+          GITHUB_PAGES: "true"
+          GITHUB_PAGES_BASE: "/uni-hwp/demo/"
+        run: npm run build
+
+      - name: Assemble Pages site
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf pages-site
+          mkdir -p pages-site/demo pages-site/assets/landing
+          cp site/index.html pages-site/index.html
+          cp -R site/assets/landing/. pages-site/assets/landing/
+          cp -R rhwp-studio/dist/. pages-site/demo/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-site
+
+  deploy-demo:
+    name: Deploy demo
+    needs: build-demo
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
   build-windows:
     name: Windows x64 installer + portable
