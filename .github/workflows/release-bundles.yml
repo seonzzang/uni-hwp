@@ -153,7 +153,7 @@ jobs:
           $dist = "dist-release"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          $installer = Get-ChildItem "src-tauri/target" -Recurse -Filter "*_setup.exe" | Select-Object -First 1
+          $installer = Get-ChildItem "src-tauri/target" -Recurse -Include "*-setup.exe","*_setup.exe" -File | Select-Object -First 1
           if (-not $installer) { throw "Windows installer artifact not found." }
           $installerName = "Uni-HWP_${version}_windows_x64_ko-KR_setup.exe"
           Copy-Item $installer.FullName (Join-Path $dist $installerName) -Force
