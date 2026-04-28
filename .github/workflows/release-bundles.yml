@@ -276,21 +276,24 @@ jobs:
           - name: macOS Apple Silicon
             os: macos-14
             target: aarch64-apple-darwin
+            cargo_target: aarch64-apple-darwin
             bundle: dmg
             stable_artifact_name: Uni-HWP_macos_aarch64_ko-KR.dmg
             artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           - name: macOS Intel
             os: macos-14
             target: x86_64-apple-darwin
+            cargo_target: x86_64-apple-darwin
             bundle: dmg
             stable_artifact_name: Uni-HWP_macos_x64_ko-KR.dmg
             artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           - name: Linux x64 AppImage
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            cargo_target: ""
             bundle: appimage
             stable_artifact_name: Uni-HWP_linux_x64_ko-KR.AppImage
-            artifact_glob: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+            artifact_glob: src-tauri/target/release/bundle/appimage/*.AppImage
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -352,7 +355,13 @@ jobs:
           fi
 
           while true; do
-            if tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"; then
+            if [ -n "${{ matrix.cargo_target }}" ]; then
+              build_cmd=(tauri build --target "${{ matrix.cargo_target }}" --bundles "${{ matrix.bundle }}")
+            else
+              build_cmd=(tauri build --bundles "${{ matrix.bundle }}")
+            fi
+
+            if "${build_cmd[@]}"; then
               break
             fi
 
