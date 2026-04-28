@@ -35,13 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(python - <<'PY'
-import json
-from pathlib import Path
-data = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
-print(data["version"])
-PY
-)"
+          version="$(python -c "import json, pathlib; print(json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version'])")"
           if [ -z "$version" ]; then
             echo "Unable to resolve version from src-tauri/tauri.conf.json" >&2
             exit 1
