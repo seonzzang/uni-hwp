@@ -1,0 +1,175 @@
+name: Build Uni-HWP Linux AppImage
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_INCREMENTAL: 0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: linux-appimage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare Linux release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c "import json, pathlib; print(json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version'])")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  ensure-release:
+    name: Ensure GitHub release exists
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --target "${GITHUB_SHA}" \
+              --title "$RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --target "${GITHUB_SHA}" \
+              --title "$RELEASE_TAG" \
+              --notes ""
+          fi
+
+  build-wasm-pkg:
+    name: Build shared WASM pkg
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build WASM pkg
+        run: wasm-pack build --target web --out-dir pkg --release
+
+      - name: Upload WASM pkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uni-hwp-wasm-pkg
+          path: |
+            pkg/rhwp.js
+            pkg/rhwp.d.ts
+            pkg/rhwp_bg.wasm
+            pkg/rhwp_bg.wasm.d.ts
+            pkg/package.json
+            pkg/LICENSE
+            pkg/README.md
+
+  build-linux:
+    name: Linux x64 AppImage
+    needs: [prepare, ensure-release, build-wasm-pkg]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rhwp-studio/package-lock.json
+
+      - name: Download WASM pkg artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: uni-hwp-wasm-pkg
+          path: pkg
+
+      - name: Install frontend dependencies
+        working-directory: rhwp-studio
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Linux AppImage
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          set -euo pipefail
+          cargo clean
+          tauri build --bundles "appimage"
+
+      - name: Normalize release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-release
+          artifact="$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -n 1)"
+          cp "$artifact" "dist-release/Uni-HWP_linux_x64_ko-KR.AppImage"
+          shasum -a 256 "dist-release/Uni-HWP_linux_x64_ko-KR.AppImage" > "dist-release/Uni-HWP_linux_x64_ko-KR.AppImage.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-appimage
+          path: |
+            dist-release/*
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
