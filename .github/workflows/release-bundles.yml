@@ -65,9 +65,46 @@ jobs:
               --notes ""
           fi
 
+  build-wasm-pkg:
+    name: Build shared WASM pkg
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build WASM pkg
+        run: wasm-pack build --target web --out-dir pkg --release
+
+      - name: Upload WASM pkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uni-hwp-wasm-pkg
+          path: |
+            pkg/rhwp.js
+            pkg/rhwp.d.ts
+            pkg/rhwp_bg.wasm
+            pkg/rhwp_bg.wasm.d.ts
+            pkg/package.json
+            pkg/LICENSE
+            pkg/README.md
+
   build-windows:
     name: Windows x64 installer + portable
-    needs: [prepare, ensure-release]
+    needs: [prepare, ensure-release, build-wasm-pkg]
     runs-on: windows-2022
     steps:
       - name: Checkout
@@ -85,9 +122,18 @@ jobs:
           cache: npm
           cache-dependency-path: rhwp-studio/package-lock.json
 
+      - name: Download WASM pkg artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: uni-hwp-wasm-pkg
+          path: pkg
+
       - name: Install frontend dependencies
         working-directory: rhwp-studio
         run: npm ci --prefer-offline --no-audit
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -96,7 +142,7 @@ jobs:
 
       - name: Build Windows bundles
         working-directory: src-tauri
-        run: cargo tauri build --target x86_64-pc-windows-msvc --bundles "nsis,portable"
+        run: tauri build --target x86_64-pc-windows-msvc --bundles "nsis,portable"
 
       - name: Normalize Windows artifacts
         shell: powershell
@@ -143,7 +189,7 @@ jobs:
 
   build-unix:
     name: ${{ matrix.name }}
-    needs: [prepare, ensure-release]
+    needs: [prepare, ensure-release, build-wasm-pkg]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -194,9 +240,18 @@ jobs:
           cache: npm
           cache-dependency-path: rhwp-studio/package-lock.json
 
+      - name: Download WASM pkg artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: uni-hwp-wasm-pkg
+          path: pkg
+
       - name: Install frontend dependencies
         working-directory: rhwp-studio
         run: npm ci --prefer-offline --no-audit
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -209,7 +264,7 @@ jobs:
 
       - name: Build Tauri bundle
         working-directory: src-tauri
-        run: cargo tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"
+        run: tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"
 
       - name: Normalize release artifact
         shell: bash
