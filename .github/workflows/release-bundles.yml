@@ -285,7 +285,7 @@ jobs:
           fi
           artifact_name="${RAW_ARTIFACT_NAME//\$\{version\}/$RELEASE_VERSION}"
           cp "$artifact" "dist-release/$artifact_name"
-          sha256sum "dist-release/$artifact_name" > "dist-release/$artifact_name.sha256"
+          shasum -a 256 "dist-release/$artifact_name" > "dist-release/$artifact_name.sha256"
           cat "dist-release/$artifact_name.sha256"
 
       - name: Upload workflow artifact
