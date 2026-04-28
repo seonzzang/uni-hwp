@@ -194,6 +194,7 @@ jobs:
 
   build-unix:
     name: ${{ matrix.name }}
+    if: false # Temporarily paused while stabilizing the Windows release workflow.
     needs: [prepare, ensure-release, build-wasm-pkg]
     runs-on: ${{ matrix.os }}
     strategy:
