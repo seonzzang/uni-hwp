@@ -21,8 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  prepare:
-    name: Prepare release metadata
+  prepare-desktop:
+    name: Prepare desktop release metadata
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
@@ -44,15 +44,15 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
-  ensure-release:
-    name: Ensure GitHub release exists
-    needs: prepare
+  ensure-release-desktop:
+    name: Ensure desktop GitHub release exists
+    needs: prepare-desktop
     runs-on: ubuntu-latest
     steps:
       - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TAG: ${{ needs.prepare-desktop.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -69,9 +69,9 @@ jobs:
               --notes ""
           fi
 
-  build-wasm-pkg:
-    name: Build shared WASM pkg
-    needs: prepare
+  build-wasm-pkg-desktop:
+    name: Build desktop shared WASM pkg
+    needs: prepare-desktop
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -96,7 +96,7 @@ jobs:
       - name: Upload WASM pkg artifact
         uses: actions/upload-artifact@v4
         with:
-          name: uni-hwp-wasm-pkg
+          name: uni-hwp-wasm-pkg-desktop
           path: |
             pkg/rhwp.js
             pkg/rhwp.d.ts
@@ -108,7 +108,7 @@ jobs:
 
   build-demo:
     name: Build demo
-    needs: [prepare, build-wasm-pkg]
+    needs: [prepare-desktop, build-wasm-pkg-desktop]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -129,7 +129,7 @@ jobs:
       - name: Download WASM pkg artifact
         uses: actions/download-artifact@v4
         with:
-          name: uni-hwp-wasm-pkg
+          name: uni-hwp-wasm-pkg-desktop
           path: pkg
 
       - name: Install frontend dependencies
@@ -175,7 +175,7 @@ jobs:
 
   build-windows:
     name: Windows x64 installer + portable
-    needs: [prepare, ensure-release, build-wasm-pkg]
+    needs: [prepare-desktop, ensure-release-desktop, build-wasm-pkg-desktop]
     runs-on: windows-2022
     steps:
       - name: Checkout
@@ -197,7 +197,7 @@ jobs:
       - name: Download WASM pkg artifact
         uses: actions/download-artifact@v4
         with:
-          name: uni-hwp-wasm-pkg
+          name: uni-hwp-wasm-pkg-desktop
           path: pkg
 
       - name: Install frontend dependencies
@@ -219,7 +219,7 @@ jobs:
       - name: Normalize Windows artifacts
         shell: powershell
         env:
-          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_VERSION: ${{ needs.prepare-desktop.outputs.version }}
         run: |
           $version = $env:RELEASE_VERSION
           $dist = "dist-release"
@@ -258,7 +258,7 @@ jobs:
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TAG: ${{ needs.prepare-desktop.outputs.tag }}
         shell: powershell
         run: |
           $files = Get-ChildItem "dist-release" -File | ForEach-Object { $_.FullName }
@@ -267,7 +267,7 @@ jobs:
 
   build-unix:
     name: ${{ matrix.name }}
-    needs: [prepare, ensure-release, build-wasm-pkg]
+    needs: [prepare-desktop, ensure-release-desktop, build-wasm-pkg-desktop]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -317,7 +317,7 @@ jobs:
       - name: Download WASM pkg artifact
         uses: actions/download-artifact@v4
         with:
-          name: uni-hwp-wasm-pkg
+          name: uni-hwp-wasm-pkg-desktop
           path: pkg
 
       - name: Install frontend dependencies
@@ -395,15 +395,100 @@ jobs:
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TAG: ${{ needs.prepare-desktop.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
           gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
 
+  prepare-linux:
+    name: Prepare Linux release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c "import json, pathlib; print(json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version'])")"
+          if [ -z "$version" ]; then
+            echo "Unable to resolve version from src-tauri/tauri.conf.json" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  ensure-release-linux:
+    name: Ensure Linux GitHub release exists
+    needs: prepare-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-linux.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --target "${GITHUB_SHA}" \
+              --title "$RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --target "${GITHUB_SHA}" \
+              --title "$RELEASE_TAG" \
+              --notes ""
+          fi
+
+  build-wasm-pkg-linux:
+    name: Build Linux shared WASM pkg
+    needs: prepare-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build WASM pkg
+        run: wasm-pack build --target web --out-dir pkg --release
+
+      - name: Upload WASM pkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uni-hwp-wasm-pkg-linux
+          path: |
+            pkg/rhwp.js
+            pkg/rhwp.d.ts
+            pkg/rhwp_bg.wasm
+            pkg/rhwp_bg.wasm.d.ts
+            pkg/package.json
+            pkg/LICENSE
+            pkg/README.md
+
   build-linux-appimage:
     name: Linux x64 AppImage
-    needs: [prepare, ensure-release, build-wasm-pkg]
+    needs: [prepare-linux, ensure-release-linux, build-wasm-pkg-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -429,7 +514,7 @@ jobs:
       - name: Download WASM pkg artifact
         uses: actions/download-artifact@v4
         with:
-          name: uni-hwp-wasm-pkg
+          name: uni-hwp-wasm-pkg-linux
           path: pkg
 
       - name: Install frontend dependencies
@@ -469,7 +554,7 @@ jobs:
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TAG: ${{ needs.prepare-linux.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
