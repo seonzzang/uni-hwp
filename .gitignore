@@ -3,6 +3,7 @@
 /target-local/
 /src-tauri/target/
 Cargo.lock
+!src-tauri/Cargo.lock
 
 # WebAssembly
 /pkg/
