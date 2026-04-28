@@ -142,7 +142,7 @@ jobs:
 
       - name: Build Windows bundles
         working-directory: src-tauri
-        run: tauri build --target x86_64-pc-windows-msvc --bundles "nsis,portable"
+        run: tauri build --target x86_64-pc-windows-msvc --bundles "nsis"
 
       - name: Normalize Windows artifacts
         shell: powershell
@@ -158,10 +158,13 @@ jobs:
           $installerName = "Uni-HWP_${version}_windows_x64_ko-KR_setup.exe"
           Copy-Item $installer.FullName (Join-Path $dist $installerName) -Force
 
-          $portable = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/portable/*.zip" | Select-Object -First 1
-          if (-not $portable) { throw "Windows portable artifact not found." }
+          $portableDir = Join-Path $dist "portable"
+          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
+          $portableExe = "src-tauri/target/x86_64-pc-windows-msvc/release/uni-hwp.exe"
+          if (!(Test-Path $portableExe)) { throw "Windows portable executable not found." }
+          Copy-Item $portableExe (Join-Path $portableDir "Uni-HWP.exe") -Force
           $portableName = "Uni-HWP_${version}_windows_x64_ko-KR_portable.zip"
-          Copy-Item $portable.FullName (Join-Path $dist $portableName) -Force
+          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath (Join-Path $dist $portableName) -Force
 
           foreach ($name in @($installerName, $portableName)) {
             $file = Join-Path $dist $name
