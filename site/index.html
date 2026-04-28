@@ -26,11 +26,6 @@
         .hero h1 { font-size:clamp(36px,6vw,72px); font-weight:900; line-height:1.1; letter-spacing:-2px; margin-bottom:24px; }
         .hero h1 em { font-style:normal; background:linear-gradient(135deg,#6c63ff,#a78bfa,#38bdf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
         .hero p { font-size:18px; color:var(--muted); line-height:1.7; max-width:600px; margin:0 auto 44px; }
-        .cta-group { display:flex; justify-content:center; gap:16px; margin-bottom:72px; flex-wrap:wrap; }
-        .btn-primary { padding:16px 36px; border-radius:12px; font-size:16px; font-weight:700; background:linear-gradient(135deg,#6c63ff,#a78bfa); color:white; text-decoration:none; box-shadow:0 8px 32px rgba(108,99,255,0.35); transition:transform 0.2s, box-shadow 0.2s; }
-        .btn-primary:hover { transform:translateY(-2px); box-shadow:0 12px 40px rgba(108,99,255,0.45); }
-        .btn-secondary { padding:16px 36px; border-radius:12px; font-size:16px; font-weight:600; border:1px solid var(--border); color:var(--text); text-decoration:none; transition:background 0.2s; }
-        .btn-secondary:hover { background:rgba(255,255,255,0.06); }
         .hero-img-wrap { max-width:1100px; margin:0 auto; border-radius:20px; overflow:hidden; box-shadow:0 40px 120px rgba(0,0,0,0.6), 0 0 0 1px var(--border); transform:perspective(1200px) rotateX(4deg); transition:transform 0.5s; }
         .hero-img-wrap:hover { transform:perspective(1200px) rotateX(0deg); }
         .hero-img-wrap img { width:100%; display:block; }
@@ -85,10 +80,6 @@
     <h1>Uni-HWP<br/><em>차세대 한글 에디터</em></h1>
     <p>어디서나, 어떤 플랫폼에서나 HWP/HWPX 문서를 자유롭게 읽고 편집하세요.<br/>
        Rust와 WebAssembly로 완성된 강력하고 빠른 오픈소스 에디터입니다.</p>
-    <div class="cta-group">
-        <a href="./demo/" class="btn-primary">온라인 데모 실행</a>
-        <a href="#download" class="btn-secondary">다운로드 보기</a>
-    </div>
     <div class="hero-img-wrap">
         <img src="assets/landing/hero.png" alt="uni-hwp 에디터 미리보기">
     </div>
