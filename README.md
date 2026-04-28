@@ -152,7 +152,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. **제품 및 제조사 정보 (Product & Manufacturer)**
   - 제품명 (Product): Uni HWP
-  - 버전 (Version): 0.8.100
+  - 버전 (Version): 8.1.100
    - 제조사 (Manufacturer): Uni-HWP Studio
    - Copyright © 2026 Uni-HWP Studio
 

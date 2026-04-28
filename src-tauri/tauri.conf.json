@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Uni-HWP",
-  "version": "0.8.100",
+  "version": "8.1.100",
   "identifier": "org.unihwp.editor",
   "build": {
     "beforeDevCommand": "cmd /c ensure-vite-dev-server.cmd",
