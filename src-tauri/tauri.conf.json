@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Uni-HWP",
+  "version": "0.8.100",
+  "identifier": "org.unihwp.editor",
+  "build": {
+    "beforeDevCommand": "cmd /c ensure-vite-dev-server.cmd",
+    "beforeBuildCommand": "cmd /c build-frontend.cmd",
+    "devUrl": "http://localhost:7710",
+    "frontendDist": "../rhwp-studio/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Uni-HWP",
+        "width": 1200,
+        "height": 800,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico", "icons/icon.png", "icons/icon.icns"],
+    "publisher": "Uni-HWP Studio",
+    "windows": {
+      "wix": {
+        "language": ["ko-KR"]
+      },
+      "nsis": {
+        "languages": ["Korean"]
+      }
+    }
+  }
+}

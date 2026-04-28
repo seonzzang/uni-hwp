@@ -1,0 +1,114 @@
+name: Build Uni-HWP Release Bundles
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to upload assets to"
+        required: true
+        default: "v0.8.100"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            os: macos-14
+            target: aarch64-apple-darwin
+            bundle: dmg
+            artifact_name: Uni-HWP_0.8.100_macos_aarch64_ko-KR.dmg
+            artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          - name: macOS Intel
+            os: macos-14
+            target: x86_64-apple-darwin
+            bundle: dmg
+            artifact_name: Uni-HWP_0.8.100_macos_x64_ko-KR.dmg
+            artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          - name: Linux x64 AppImage
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bundle: appimage
+            artifact_name: Uni-HWP_0.8.100_linux_x64_ko-KR.AppImage
+            artifact_glob: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rhwp-studio/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: rhwp-studio
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Add Intel Rust target
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: rustup target add x86_64-apple-darwin
+
+      - name: Build Tauri bundle
+        run: cargo tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"
+        working-directory: src-tauri
+
+      - name: Normalize artifact name
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-release
+          artifact="$(ls ${{ matrix.artifact_glob }} | head -n 1)"
+          cp "$artifact" "dist-release/${{ matrix.artifact_name }}"
+          sha256sum "dist-release/${{ matrix.artifact_name }}" > "dist-release/${{ matrix.artifact_name }}.sha256"
+          cat "dist-release/${{ matrix.artifact_name }}.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            dist-release/${{ matrix.artifact_name }}
+            dist-release/${{ matrix.artifact_name }}.sha256
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.tag }}" \
+            "dist-release/${{ matrix.artifact_name }}" \
+            "dist-release/${{ matrix.artifact_name }}.sha256" \
+            --repo "${{ github.repository }}" \
+            --clobber

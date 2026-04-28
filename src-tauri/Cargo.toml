@@ -1,0 +1,32 @@
+[package]
+name = "uni-hwp"
+version = "0.8.100"
+description = "Uni-HWP Korean desktop distribution"
+authors = ["Uni-HWP Studio"]
+license = "MIT"
+repository = "https://github.com/seonzzang/uni-hwp"
+edition = "2021"
+rust-version = "1.75"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-fs = "2.0"
+tauri-plugin-dialog = "2.0"
+tauri-plugin-shell = "2.0.0-rc.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "native-tls"] }
+
+
+
+
+
+
+
+
+
+
+

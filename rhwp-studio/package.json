@@ -1,0 +1,27 @@
+{
+  "name": "uni-hwp-studio",
+  "version": "0.8.100",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "e2e": "node e2e/text-flow.test.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.40",
+    "@types/pdfkit": "^0.17.6",
+    "@types/svg-to-pdfkit": "^0.1.4",
+    "puppeteer-core": "^24.40.0",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.8"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "pdf-lib": "^1.17.1",
+    "pdfkit": "^0.18.0",
+    "svg-to-pdfkit": "^0.1.8"
+  }
+}
