@@ -1,0 +1,89 @@
+name: Fast Windows Release Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label for the uploaded artifact"
+        required: true
+        default: "0.8.100"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build-windows-fast:
+    name: Build Windows fast check
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rhwp-studio/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: rhwp-studio
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
+
+      - name: Setup Rust targets
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust targets
+        run: rustup target add x86_64-pc-windows-msvc wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build WASM pkg
+        run: wasm-pack build --target web --out-dir pkg --release
+
+      - name: Build Windows installer
+        working-directory: src-tauri
+        run: tauri build --target x86_64-pc-windows-msvc --bundles "nsis"
+
+      - name: Collect fast artifacts
+        shell: powershell
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $version = $env:RELEASE_VERSION
+          $dist = "fast-dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          $installer = Get-ChildItem "src-tauri/target" -Recurse -Include "*-setup.exe","*_setup.exe" -File | Select-Object -First 1
+          if (-not $installer) { throw "Windows installer artifact not found." }
+          Copy-Item $installer.FullName (Join-Path $dist "Uni-HWP_${version}_windows_x64_ko-KR_setup.exe") -Force
+
+          $portableDir = Join-Path $dist "portable"
+          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
+          $portableExe = Get-ChildItem "src-tauri/target" -Recurse -Filter "uni-hwp.exe" |
+            Where-Object { $_.FullName -notmatch "\\bundle\\" } |
+            Select-Object -First 1
+          if (-not $portableExe) { throw "Windows portable executable not found." }
+          Copy-Item $portableExe.FullName (Join-Path $portableDir "Uni-HWP.exe") -Force
+          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath (Join-Path $dist "Uni-HWP_${version}_windows_x64_ko-KR_portable.zip") -Force
+
+      - name: Upload fast workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-fast-check
+          path: |
+            fast-dist/*.exe
+            fast-dist/*.zip
