@@ -212,12 +212,8 @@ jobs:
             bundle: dmg
             artifact_name: Uni-HWP_${version}_macos_x64_ko-KR.dmg
             artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-          - name: Linux x64 AppImage
-            os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            bundle: appimage
-            artifact_name: Uni-HWP_${version}_linux_x64_ko-KR.AppImage
-            artifact_glob: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+          # Linux x64 AppImage is temporarily paused because it already succeeded.
+          # Re-enable after Windows/macOS stabilization is complete.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
