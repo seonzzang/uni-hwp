@@ -153,16 +153,18 @@ jobs:
           $dist = "dist-release"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-          $installer = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*_setup.exe" | Select-Object -First 1
+          $installer = Get-ChildItem "src-tauri/target" -Recurse -Filter "*_setup.exe" | Select-Object -First 1
           if (-not $installer) { throw "Windows installer artifact not found." }
           $installerName = "Uni-HWP_${version}_windows_x64_ko-KR_setup.exe"
           Copy-Item $installer.FullName (Join-Path $dist $installerName) -Force
 
           $portableDir = Join-Path $dist "portable"
           New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
-          $portableExe = "src-tauri/target/x86_64-pc-windows-msvc/release/uni-hwp.exe"
-          if (!(Test-Path $portableExe)) { throw "Windows portable executable not found." }
-          Copy-Item $portableExe (Join-Path $portableDir "Uni-HWP.exe") -Force
+          $portableExe = Get-ChildItem "src-tauri/target" -Recurse -Filter "uni-hwp.exe" |
+            Where-Object { $_.FullName -notmatch "\\bundle\\" } |
+            Select-Object -First 1
+          if (-not $portableExe) { throw "Windows portable executable not found." }
+          Copy-Item $portableExe.FullName (Join-Path $portableDir "Uni-HWP.exe") -Force
           $portableName = "Uni-HWP_${version}_windows_x64_ko-KR_portable.zip"
           Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath (Join-Path $dist $portableName) -Force
 
