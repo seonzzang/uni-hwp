@@ -5,7 +5,7 @@
   "identifier": "org.unihwp.editor",
   "build": {
     "beforeDevCommand": "cmd /c ensure-vite-dev-server.cmd",
-    "beforeBuildCommand": "cmd /c build-frontend.cmd",
+    "beforeBuildCommand": "node ./build-frontend.mjs",
     "devUrl": "http://localhost:7710",
     "frontendDist": "../rhwp-studio/dist"
   },
