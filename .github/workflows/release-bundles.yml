@@ -187,10 +187,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        shell: bash
+        shell: powershell
         run: |
-          set -euo pipefail
-          gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
+          $files = Get-ChildItem "dist-release" -File | ForEach-Object { $_.FullName }
+          if (-not $files) { throw "No Windows release files found to upload." }
+          gh release upload $env:RELEASE_TAG @files --repo "${{ github.repository }}" --clobber
 
   build-unix:
     name: ${{ matrix.name }}
