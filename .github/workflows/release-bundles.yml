@@ -1,6 +1,12 @@
 name: Build Uni-HWP Release Bundles
 
 on:
+  push:
+    tags:
+      - "v*"
+  release:
+    types:
+      - published
   workflow_dispatch:
     inputs:
       tag:
@@ -13,10 +19,131 @@ permissions:
 
 env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_INCREMENTAL: 0
 
 jobs:
-  build:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Resolve tag and version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+          fi
+          if [ -z "$tag" ]; then
+            echo "Unable to resolve release tag." >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  ensure-release:
+    name: Ensure GitHub release exists
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$RELEASE_TAG" \
+              --notes ""
+          fi
+
+  build-windows:
+    name: Windows x64 installer + portable
+    needs: [prepare, ensure-release]
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: rhwp-studio/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: rhwp-studio
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Windows bundles
+        working-directory: src-tauri
+        run: cargo tauri build --target x86_64-pc-windows-msvc --bundles "nsis,portable"
+
+      - name: Normalize Windows artifacts
+        shell: powershell
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          $version = $env:RELEASE_VERSION
+          $dist = "dist-release"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          $installer = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*_setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Windows installer artifact not found." }
+          $installerName = "Uni-HWP_${version}_windows_x64_ko-KR_setup.exe"
+          Copy-Item $installer.FullName (Join-Path $dist $installerName) -Force
+
+          $portable = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/portable/*.zip" | Select-Object -First 1
+          if (-not $portable) { throw "Windows portable artifact not found." }
+          $portableName = "Uni-HWP_${version}_windows_x64_ko-KR_portable.zip"
+          Copy-Item $portable.FullName (Join-Path $dist $portableName) -Force
+
+          foreach ($name in @($installerName, $portableName)) {
+            $file = Join-Path $dist $name
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            Set-Content -Path "${file}.sha256" -Value "$hash *$name" -Encoding ascii
+          }
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-release-bundles
+          path: |
+            dist-release/*.exe
+            dist-release/*.zip
+            dist-release/*.sha256
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
+
+  build-unix:
     name: ${{ matrix.name }}
+    needs: [prepare, ensure-release]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -26,21 +153,20 @@ jobs:
             os: macos-14
             target: aarch64-apple-darwin
             bundle: dmg
-            artifact_name: Uni-HWP_0.8.100_macos_aarch64_ko-KR.dmg
+            artifact_name: Uni-HWP_${version}_macos_aarch64_ko-KR.dmg
             artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           - name: macOS Intel
             os: macos-14
             target: x86_64-apple-darwin
             bundle: dmg
-            artifact_name: Uni-HWP_0.8.100_macos_x64_ko-KR.dmg
+            artifact_name: Uni-HWP_${version}_macos_x64_ko-KR.dmg
             artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           - name: Linux x64 AppImage
             os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             bundle: appimage
-            artifact_name: Uni-HWP_0.8.100_linux_x64_ko-KR.AppImage
+            artifact_name: Uni-HWP_${version}_linux_x64_ko-KR.AppImage
             artifact_glob: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,8 +195,8 @@ jobs:
           cache-dependency-path: rhwp-studio/package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci
         working-directory: rhwp-studio
+        run: npm ci --prefer-offline --no-audit
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -82,33 +208,40 @@ jobs:
         run: rustup target add x86_64-apple-darwin
 
       - name: Build Tauri bundle
-        run: cargo tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"
         working-directory: src-tauri
+        run: cargo tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"
 
-      - name: Normalize artifact name
+      - name: Normalize release artifact
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RAW_ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
         run: |
           set -euo pipefail
           mkdir -p dist-release
-          artifact="$(ls ${{ matrix.artifact_glob }} | head -n 1)"
-          cp "$artifact" "dist-release/${{ matrix.artifact_name }}"
-          sha256sum "dist-release/${{ matrix.artifact_name }}" > "dist-release/${{ matrix.artifact_name }}.sha256"
-          cat "dist-release/${{ matrix.artifact_name }}.sha256"
+          artifact="$(ls $ARTIFACT_GLOB | head -n 1)"
+          if [ -z "$artifact" ]; then
+            echo "Artifact not found for pattern: $ARTIFACT_GLOB" >&2
+            exit 1
+          fi
+          artifact_name="${RAW_ARTIFACT_NAME//\$\{version\}/$RELEASE_VERSION}"
+          cp "$artifact" "dist-release/$artifact_name"
+          sha256sum "dist-release/$artifact_name" > "dist-release/$artifact_name.sha256"
+          cat "dist-release/$artifact_name.sha256"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.name }}
           path: |
-            dist-release/${{ matrix.artifact_name }}
-            dist-release/${{ matrix.artifact_name }}.sha256
+            dist-release/*
 
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
         run: |
-          gh release upload "${{ inputs.tag }}" \
-            "dist-release/${{ matrix.artifact_name }}" \
-            "dist-release/${{ matrix.artifact_name }}.sha256" \
-            --repo "${{ github.repository }}" \
-            --clobber
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
