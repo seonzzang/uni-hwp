@@ -2,6 +2,8 @@ name: Build Uni-HWP Release Bundles
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   release:
@@ -29,6 +31,9 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Resolve tag and version
         id: meta
         shell: bash
@@ -36,7 +41,18 @@ jobs:
           set -euo pipefail
           tag="${{ github.event.inputs.tag }}"
           if [ -z "$tag" ]; then
-            tag="${GITHUB_REF_NAME}"
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              tag="${GITHUB_REF_NAME}"
+            else
+              version="$(python - <<'PY'
+import json
+from pathlib import Path
+data = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+print(data["version"])
+PY
+)"
+              tag="v${version}"
+            fi
           fi
           if [ -z "$tag" ]; then
             echo "Unable to resolve release tag." >&2
@@ -61,8 +77,14 @@ jobs:
           if ! gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" \
               --repo "${{ github.repository }}" \
+              --target "${GITHUB_SHA}" \
               --title "$RELEASE_TAG" \
               --notes ""
+          else
+            gh release edit "$RELEASE_TAG" \
+              --repo "${{ github.repository }}" \
+              --target "${GITHUB_SHA}" \
+              --title "$RELEASE_TAG"
           fi
 
   build-wasm-pkg:
@@ -156,7 +178,9 @@ jobs:
           $installer = Get-ChildItem "src-tauri/target" -Recurse -Include "*-setup.exe","*_setup.exe" -File | Select-Object -First 1
           if (-not $installer) { throw "Windows installer artifact not found." }
           $installerName = "Uni-HWP_${version}_windows_x64_ko-KR_setup.exe"
+          $installerStableName = "Uni-HWP_windows_x64_ko-KR_setup.exe"
           Copy-Item $installer.FullName (Join-Path $dist $installerName) -Force
+          Copy-Item $installer.FullName (Join-Path $dist $installerStableName) -Force
 
           $portableDir = Join-Path $dist "portable"
           New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
@@ -166,9 +190,11 @@ jobs:
           if (-not $portableExe) { throw "Windows portable executable not found." }
           Copy-Item $portableExe.FullName (Join-Path $portableDir "Uni-HWP.exe") -Force
           $portableName = "Uni-HWP_${version}_windows_x64_ko-KR_portable.zip"
+          $portableStableName = "Uni-HWP_windows_x64_ko-KR_portable.zip"
           Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath (Join-Path $dist $portableName) -Force
+          Copy-Item (Join-Path $dist $portableName) (Join-Path $dist $portableStableName) -Force
 
-          foreach ($name in @($installerName, $portableName)) {
+          foreach ($name in @($installerName, $installerStableName, $portableName, $portableStableName)) {
             $file = Join-Path $dist $name
             $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
             Set-Content -Path "${file}.sha256" -Value "$hash *$name" -Encoding ascii
@@ -195,7 +221,6 @@ jobs:
 
   build-unix:
     name: ${{ matrix.name }}
-    if: false # Temporarily paused while stabilizing the Windows release workflow.
     needs: [prepare, ensure-release, build-wasm-pkg]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -207,15 +232,22 @@ jobs:
             target: aarch64-apple-darwin
             bundle: dmg
             artifact_name: Uni-HWP_${version}_macos_aarch64_ko-KR.dmg
+            stable_artifact_name: Uni-HWP_macos_aarch64_ko-KR.dmg
             artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           - name: macOS Intel
             os: macos-14
             target: x86_64-apple-darwin
             bundle: dmg
             artifact_name: Uni-HWP_${version}_macos_x64_ko-KR.dmg
+            stable_artifact_name: Uni-HWP_macos_x64_ko-KR.dmg
             artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-          # Linux x64 AppImage is temporarily paused because it already succeeded.
-          # Re-enable after Windows/macOS stabilization is complete.
+          - name: Linux x64 AppImage
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundle: appimage
+            artifact_name: Uni-HWP_${version}_linux_x64_ko-KR.AppImage
+            stable_artifact_name: Uni-HWP_linux_x64_ko-KR.AppImage
+            artifact_glob: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -274,6 +306,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           RAW_ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          STABLE_ARTIFACT_NAME: ${{ matrix.stable_artifact_name }}
           ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
         run: |
           set -euo pipefail
@@ -285,7 +318,9 @@ jobs:
           fi
           artifact_name="${RAW_ARTIFACT_NAME//\$\{version\}/$RELEASE_VERSION}"
           cp "$artifact" "dist-release/$artifact_name"
+          cp "$artifact" "dist-release/$STABLE_ARTIFACT_NAME"
           shasum -a 256 "dist-release/$artifact_name" > "dist-release/$artifact_name.sha256"
+          shasum -a 256 "dist-release/$STABLE_ARTIFACT_NAME" > "dist-release/$STABLE_ARTIFACT_NAME.sha256"
           cat "dist-release/$artifact_name.sha256"
 
       - name: Upload workflow artifact

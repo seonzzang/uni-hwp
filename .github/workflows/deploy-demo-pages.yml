@@ -54,7 +54,18 @@ jobs:
         working-directory: rhwp-studio
         env:
           GITHUB_PAGES: "true"
+          GITHUB_PAGES_BASE: "/uni-hwp/demo/"
         run: npm run build
+
+      - name: Assemble Pages site
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf pages-site
+          mkdir -p pages-site/demo pages-site/assets/landing
+          cp site/index.html pages-site/index.html
+          cp -R site/assets/landing/. pages-site/assets/landing/
+          cp -R rhwp-studio/dist/. pages-site/demo/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -62,7 +73,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: rhwp-studio/dist
+          path: pages-site
 
   deploy:
     name: Deploy demo
