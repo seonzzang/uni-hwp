@@ -1,7 +1,7 @@
-// rhwp Safari Web Extension - Background Script
+// Uni-HWP Safari Web Extension - Background Script
 // Safari Web Extension은 비영속적 배경 페이지로 동작
 // browser.* (WebExtension 표준) API 사용
-// 보안 모듈: rhwp-shared/security/ 참조 (빌드 시 인라인)
+// 보안 모듈: packages/shared-security/ 참조 (빌드 시 인라인)
 
 'use strict';
 
