@@ -2,6 +2,7 @@ import type { EventBus } from '@/core/event-bus';
 import type { CommandDispatcher } from '@/command/dispatcher';
 
 type DocumentLifecycle = {
+  closeCurrentDocument: () => Promise<void>;
   createNewDocument: () => Promise<void>;
   loadBytes: (
     data: Uint8Array,
@@ -20,6 +21,10 @@ export function installEditorEventBindings(params: {
 
   eventBus.on('create-new-document', () => {
     void documentLifecycle.createNewDocument();
+  });
+
+  eventBus.on('close-current-document', () => {
+    void documentLifecycle.closeCurrentDocument();
   });
 
   eventBus.on('open-document-bytes', async (payload) => {

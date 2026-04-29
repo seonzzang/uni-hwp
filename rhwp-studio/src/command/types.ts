@@ -1,5 +1,6 @@
 import type { EventBus } from '@/core/event-bus';
 import type { UniHwpEngine } from '@/engine-boundary/uni-hwp-engine';
+import type { DocumentSession } from '@/app/document-session';
 import type { InputHandler } from '@/engine/input-handler';
 import type { ViewportManager } from '@/view/viewport-manager';
 
@@ -56,6 +57,7 @@ export interface CommandDef {
 export interface CommandServices {
   eventBus: EventBus;
   wasm: UniHwpEngine;
+  documentSession: DocumentSession;
   /** 현재 에디터 상태 스냅샷 */
   getContext: () => EditorContext;
   /** InputHandler 접근 (문서 미로드 시 null) */

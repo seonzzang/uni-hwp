@@ -241,6 +241,19 @@ export class WasmBridge {
     return nextState.info;
   }
 
+  closeDocument(): void {
+    const doc = this.doc;
+    this.doc = null;
+    this._fileName = 'document.hwp';
+    this._currentFileHandle = null;
+    this.freeDocument(doc, 'close-document');
+    if (this.retiredDocs.length > 0) {
+      for (const retired of this.retiredDocs.splice(0)) {
+        this.freeDocument(retired, 'close-document-retired');
+      }
+    }
+  }
+
   get fileName(): string {
     return this._fileName;
   }

@@ -13,6 +13,7 @@ import type { CommandDispatcher } from '@/command/dispatcher';
 export class MenuBar {
   private menuItems: HTMLElement[];
   private openMenu: HTMLElement | null = null;
+  private documentCloseButton: HTMLButtonElement | null = null;
 
   constructor(
     private container: HTMLElement,
@@ -25,6 +26,7 @@ export class MenuBar {
     this.setupItemClicks();
     this.setupOutsideClose();
     this.setupKeyboardClose();
+    this.setupDocumentCloseButton();
   }
 
   /** 메뉴 타이틀 클릭 → 드롭다운 토글 */
@@ -132,5 +134,38 @@ export class MenuBar {
   private closeAll(): void {
     this.openMenu?.classList.remove('open');
     this.openMenu = null;
+  }
+
+  private setupDocumentCloseButton(): void {
+    const spacer = document.createElement('div');
+    spacer.className = 'menu-bar-spacer';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'menu-bar-doc-close';
+    button.textContent = '\u00D7';
+    button.title = '문서 닫기';
+    button.setAttribute('aria-label', '문서 닫기');
+    button.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled) return;
+      this.closeAll();
+      this.dispatcher.dispatch('file:close');
+    });
+
+    this.documentCloseButton = button;
+    this.container.appendChild(spacer);
+    this.container.appendChild(button);
+
+    this.eventBus.on('command-state-changed', () => this.updateDocumentCloseButtonState());
+    this.updateDocumentCloseButtonState();
+  }
+
+  private updateDocumentCloseButtonState(): void {
+    if (!this.documentCloseButton) return;
+    const enabled = this.dispatcher.isEnabled('file:close');
+    this.documentCloseButton.disabled = !enabled;
+    this.documentCloseButton.classList.toggle('disabled', !enabled);
   }
 }

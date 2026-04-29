@@ -8,15 +8,18 @@ import { invoke } from '@tauri-apps/api/core';
 import { createUniHwpEngine } from '@/engine-boundary/uni-hwp-engine';
 import { createCommandRuntime } from '@/app/command-runtime';
 import { exposeDevGlobals } from '@/app/dev-runtime';
+import { DocumentSession } from '@/app/document-session';
 import { createDocumentLifecycle } from '@/app/document-lifecycle';
 import { createEditorContextRuntime } from '@/app/editor-context';
 import { getStatusElements, setDocumentTransitioning } from '@/app/editor-dom';
 import { installEmbeddedApi } from '@/app/embedded-api';
 import { installEditorEventBindings } from '@/app/event-bindings';
 import { initializeEditorApp } from '@/app/initialize-editor';
+import { installWindowCloseGuard } from '@/app/window-close-guard';
 
 const wasm = createUniHwpEngine();
 const eventBus = new EventBus();
+const documentSession = new DocumentSession();
 const { sbMessage, sbPage, sbSection, sbZoomVal } = getStatusElements();
 
 // E2E 테스트용 전역 노출 (개발 모드 전용)
@@ -28,6 +31,7 @@ let ruler: Ruler | null = null;
 const { commandServices } = createEditorContextRuntime({
   wasm,
   eventBus,
+  documentSession,
   getInputHandler: () => inputHandler,
   getCanvasView: () => canvasView,
 });
@@ -41,6 +45,7 @@ let totalSections = 1;
 
 const documentLifecycle = createDocumentLifecycle({
   wasm,
+  eventBus,
   getCanvasView: () => canvasView,
   getInputHandler: () => inputHandler,
   getToolbar: () => toolbar,
@@ -49,10 +54,23 @@ const documentLifecycle = createDocumentLifecycle({
   setTotalSections: (count) => {
     totalSections = count;
   },
-  getTotalSections: () => totalSections,
   setSectionText: (text) => {
     sbSection().textContent = text;
   },
+  markDocumentClean: () => {
+    documentSession.markClean();
+  },
+  resetToEmptyState: () => {
+    sbMessage().textContent = 'HWP 파일을 선택해주세요.';
+    sbPage().textContent = '1 / 1 쪽';
+    sbSection().textContent = '구역: 1 / 1';
+  },
+});
+
+eventBus.on('document-changed', () => {
+  if (wasm.pageCount > 0) {
+    documentSession.markDirty();
+  }
 });
 
 async function initialize(): Promise<void> {
@@ -89,6 +107,10 @@ installEditorEventBindings({
 });
 
 initialize();
+void installWindowCloseGuard({
+  wasm,
+  documentSession,
+});
 installEmbeddedApi({
   wasm,
   documentLifecycle,

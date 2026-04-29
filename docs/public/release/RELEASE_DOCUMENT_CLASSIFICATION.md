@@ -7,7 +7,7 @@
 - `README.md`
 - `CONTRIBUTING.md`
 - `LICENSE`
-- `docs/legal/THIRD_PARTY_LICENSES.md`
+- `docs/public/legal/THIRD_PARTY_LICENSES.md`
 - `.github/CODE_OF_CONDUCT.md`
 - `.github/SECURITY.md`
 - `.github/pull_request_template.md`
@@ -16,18 +16,18 @@
 
 ## RHWP 업그레이드 및 유지보수 핵심 문서
 
-- `docs/maintenance/RHWP_ENGINE_API_INVENTORY.md`
-- `docs/maintenance/RHWP_ENGINE_COMPATIBILITY_CHECKLIST.md`
-- `docs/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_PLAN.md`
-- `docs/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_SPEC.md`
-- `docs/maintenance/RHWP_ENGINE_INTEGRATION_REQUIREMENTS.md`
-- `docs/maintenance/RHWP_ENGINE_UPDATE_RUNBOOK.md`
-- `docs/maintenance/RHWP_INTEGRATION_PRESERVATION_ANTI_SPAGHETTI_GUIDE.md`
-- `docs/maintenance/RHWP_INTEGRATION_PRESERVATION_ARCHITECTURE.md`
-- `docs/maintenance/RHWP_INTEGRATION_PRESERVATION_FRAMEWORK.md`
-- `docs/maintenance/RHWP_INTEGRATION_PRESERVATION_NAMING.md`
-- `docs/maintenance/RHWP_INTEGRATION_PRESERVATION_VIBE_CODING_GUIDE.md`
-- `docs/maintenance/rhwp_rename_map_table.md`
+- `docs/public/maintenance/RHWP_ENGINE_API_INVENTORY.md`
+- `docs/public/maintenance/RHWP_ENGINE_COMPATIBILITY_CHECKLIST.md`
+- `docs/public/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_PLAN.md`
+- `docs/public/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_SPEC.md`
+- `docs/public/maintenance/RHWP_ENGINE_INTEGRATION_REQUIREMENTS.md`
+- `docs/public/maintenance/RHWP_ENGINE_UPDATE_RUNBOOK.md`
+- `docs/public/architecture/RHWP_INTEGRATION_PRESERVATION_ANTI_SPAGHETTI_GUIDE.md`
+- `docs/public/architecture/RHWP_INTEGRATION_PRESERVATION_ARCHITECTURE.md`
+- `docs/public/architecture/RHWP_INTEGRATION_PRESERVATION_FRAMEWORK.md`
+- `docs/public/architecture/RHWP_INTEGRATION_PRESERVATION_NAMING.md`
+- `docs/public/architecture/RHWP_INTEGRATION_PRESERVATION_VIBE_CODING_GUIDE.md`
+- `docs/public/architecture/rhwp_rename_map_table.md`
 - `rhwp_rename_map.json`
 
 ## 배포 브랜치에서 제외한 문서

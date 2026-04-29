@@ -514,6 +514,13 @@ export class CanvasView {
     this.updateVisiblePages();
   }
 
+  clearDocument(): void {
+    this.reset();
+    this.virtualScroll.setPageDimensions([], this.viewportManager.getZoom(), this.container.clientWidth);
+    this.scrollContent.style.height = '0px';
+    this.container.scrollTop = 0;
+  }
+
   /** 리소스를 정리한다 */
   private reset(): void {
     this.loadGeneration += 1;

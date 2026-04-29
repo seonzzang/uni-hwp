@@ -32,6 +32,7 @@ export async function loadDocumentBytes(params: {
   deactivateInput: () => void;
   initializeDocument: InitializeDocumentFn;
   getStatusElement: () => HTMLElement;
+  markDocumentClean: () => void;
 }): Promise<void> {
   const {
     wasm,
@@ -43,6 +44,7 @@ export async function loadDocumentBytes(params: {
     deactivateInput,
     initializeDocument,
     getStatusElement,
+    markDocumentClean,
   } = params;
 
   setDocumentTransitioning(true);
@@ -52,6 +54,7 @@ export async function loadDocumentBytes(params: {
     wasm.currentFileHandle = fileHandle;
     const elapsed = performance.now() - startTime;
     await initializeDocument(docInfo, `${fileName} — ${docInfo.pageCount}페이지 (${elapsed.toFixed(1)}ms)`);
+    markDocumentClean();
   } finally {
     setDocumentTransitioning(false);
   }
@@ -61,12 +64,14 @@ export async function createBlankDocument(params: {
   wasm: UniHwpEngine;
   setStatusMessage: (message: string) => void;
   initializeDocument: InitializeDocumentFn;
+  markDocumentClean: () => void;
 }): Promise<void> {
-  const { wasm, setStatusMessage, initializeDocument } = params;
+  const { wasm, setStatusMessage, initializeDocument, markDocumentClean } = params;
   try {
     setStatusMessage('새 문서 생성 중...');
     const docInfo = wasm.createNewDocument();
     await initializeDocument(docInfo, `새 문서.hwp — ${docInfo.pageCount}페이지`);
+    markDocumentClean();
   } catch (error) {
     setStatusMessage(`새 문서 생성 실패: ${error}`);
     console.error('[main] 새 문서 생성 실패:', error);

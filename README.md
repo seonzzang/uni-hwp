@@ -89,18 +89,18 @@ npm run tauri dev
 
 ## Maintenance Documents
 
-RHWP 엔진 업그레이드 및 Uni-HWP 유지보수에 필요한 핵심 문서는 `docs/maintenance` 아래에 정리되어 있습니다.
+RHWP 엔진 업그레이드 및 Uni-HWP 유지보수에 필요한 핵심 문서는 `docs/public/maintenance` 아래에 정리되어 있습니다.
 
-- `docs/maintenance/RHWP_ENGINE_API_INVENTORY.md`
-- `docs/maintenance/RHWP_ENGINE_COMPATIBILITY_CHECKLIST.md`
-- `docs/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_PLAN.md`
-- `docs/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_SPEC.md`
-- `docs/maintenance/RHWP_ENGINE_INTEGRATION_REQUIREMENTS.md`
-- `docs/maintenance/RHWP_ENGINE_UPDATE_RUNBOOK.md`
-- `docs/maintenance/RHWP_INTEGRATION_PRESERVATION_ARCHITECTURE.md`
-- `docs/maintenance/RHWP_INTEGRATION_PRESERVATION_FRAMEWORK.md`
+- `docs/public/maintenance/RHWP_ENGINE_API_INVENTORY.md`
+- `docs/public/maintenance/RHWP_ENGINE_COMPATIBILITY_CHECKLIST.md`
+- `docs/public/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_PLAN.md`
+- `docs/public/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_SPEC.md`
+- `docs/public/maintenance/RHWP_ENGINE_INTEGRATION_REQUIREMENTS.md`
+- `docs/public/maintenance/RHWP_ENGINE_UPDATE_RUNBOOK.md`
+- `docs/public/architecture/RHWP_INTEGRATION_PRESERVATION_ARCHITECTURE.md`
+- `docs/public/architecture/RHWP_INTEGRATION_PRESERVATION_FRAMEWORK.md`
 
-배포 브랜치 문서 분류 기준은 `docs/release/RELEASE_DOCUMENT_CLASSIFICATION.md`에서 확인할 수 있습니다.
+문서 구조 가이드는 `docs/README.md`에서, 배포 브랜치 문서 분류 기준은 `docs/public/release/RELEASE_DOCUMENT_CLASSIFICATION.md`에서 확인할 수 있습니다.
 
 ## Architecture
 
@@ -152,7 +152,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. **제품 및 제조사 정보 (Product & Manufacturer)**
   - 제품명 (Product): Uni HWP
-  - 버전 (Version): 8.1.100
+  - 버전 (Version): 8.1.101
    - 제조사 (Manufacturer): Uni-HWP Studio
    - Copyright © 2026 Uni-HWP Studio
 
