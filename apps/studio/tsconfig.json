@@ -16,7 +16,7 @@
     "types": ["chrome"],
     "paths": {
       "@/*": ["./src/*"],
-      "@wasm/*": ["../pkg/*"]
+      "@wasm/*": ["../../pkg/*"]
     }
   },
   "include": ["src"]

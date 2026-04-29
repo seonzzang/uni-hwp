@@ -56,10 +56,10 @@ Thumbs.db
 .env.docker
 
 # E2E 스크린샷
-rhwp-studio/e2e/screenshots/
+apps/studio/e2e/screenshots/
 
 # 비공개 테스트
-rhwp-studio/e2e/kps-ai*.test.mjs
+apps/studio/e2e/kps-ai*.test.mjs
 
 # 공개 리포 원본 파일 (prepare-github.sh용)
 CLAUDE.public.md

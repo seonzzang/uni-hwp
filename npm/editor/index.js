@@ -61,7 +61,7 @@ export async function createEditor(container, options = {}) {
 /**
  * HWP 에디터 인스턴스
  *
- * iframe 내부의 rhwp-studio와 postMessage로 통신합니다.
+ * iframe 내부의 Uni-HWP Studio와 postMessage로 통신합니다.
  */
 class RhwpEditor {
   constructor(iframe) {

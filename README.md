@@ -78,8 +78,8 @@ docker compose --env-file .env.docker run --rm wasm
 
 ```bash
 # Web Editor 실행
-# 현재 소스 경로는 upstream 추적성을 위해 rhwp-studio 이름을 유지합니다.
-cd rhwp-studio
+# Uni-HWP Studio 앱 셸
+cd apps/studio
 npm install
 npx vite --host 0.0.0.0 --port 7700
 

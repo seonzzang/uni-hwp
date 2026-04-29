@@ -2,10 +2,10 @@ $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
-$studioDir = Join-Path $repoRoot 'rhwp-studio'
+$studioDir = Join-Path $repoRoot 'apps\studio'
 
 if (!(Test-Path (Join-Path $studioDir 'package.json'))) {
-  throw "rhwp-studio/package.json not found: $studioDir"
+  throw "apps/studio/package.json not found: $studioDir"
 }
 
 $viteProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |

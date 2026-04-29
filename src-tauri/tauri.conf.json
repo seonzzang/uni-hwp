@@ -7,7 +7,7 @@
     "beforeDevCommand": "cmd /c ensure-vite-dev-server.cmd",
     "beforeBuildCommand": "node ./src-tauri/build-frontend.mjs",
     "devUrl": "http://localhost:7710",
-    "frontendDist": "../rhwp-studio/dist"
+    "frontendDist": "../apps/studio/dist"
   },
   "app": {
     "windows": [

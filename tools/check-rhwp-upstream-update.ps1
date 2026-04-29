@@ -17,18 +17,18 @@ $result = [ordered]@{
     'pkg/**',
     'Cargo.toml',
     'Cargo.lock',
-    'rhwp-studio/public/rhwp.js',
+    'apps/studio/public/rhwp.js',
     'web/rhwp.js',
     'typescript/rhwp.d.ts'
   )
   appBoundaryPaths = @(
-    'rhwp-studio/src/engine-boundary/**',
-    'rhwp-studio/src/app/**',
-    'rhwp-studio/src/command/**',
-    'rhwp-studio/src/print/**',
-    'rhwp-studio/src/pdf/**',
-    'rhwp-studio/src/ui/**',
-    'rhwp-studio/src/view/**',
+    'apps/studio/src/engine-boundary/**',
+    'apps/studio/src/app/**',
+    'apps/studio/src/command/**',
+    'apps/studio/src/print/**',
+    'apps/studio/src/pdf/**',
+    'apps/studio/src/ui/**',
+    'apps/studio/src/view/**',
     'src-tauri/**'
   )
   candidates = @()

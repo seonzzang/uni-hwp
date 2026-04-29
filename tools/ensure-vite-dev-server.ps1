@@ -15,7 +15,7 @@ function Test-ViteServer {
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
-$studioDir = Join-Path $repoRoot 'rhwp-studio'
+$studioDir = Join-Path $repoRoot 'apps\studio'
 $logDir = Join-Path $repoRoot 'Release_Temp\codex-logs'
 $viteUrl = 'http://localhost:7710'
 $viteOutLog = Join-Path $logDir 'vite-managed.out.log'

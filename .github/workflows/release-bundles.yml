@@ -124,7 +124,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: rhwp-studio/package-lock.json
+          cache-dependency-path: apps/studio/package-lock.json
 
       - name: Download WASM pkg artifact
         uses: actions/download-artifact@v4
@@ -133,11 +133,11 @@ jobs:
           path: pkg
 
       - name: Install frontend dependencies
-        working-directory: rhwp-studio
+        working-directory: apps/studio
         run: npm ci --prefer-offline --no-audit
 
       - name: Build demo bundle
-        working-directory: rhwp-studio
+        working-directory: apps/studio
         env:
           GITHUB_PAGES: "true"
           GITHUB_PAGES_BASE: "/uni-hwp/demo/"
@@ -151,7 +151,7 @@ jobs:
           mkdir -p pages-site/demo pages-site/assets/landing
           cp site/index.html pages-site/index.html
           cp -R site/assets/landing/. pages-site/assets/landing/
-          cp -R rhwp-studio/dist/. pages-site/demo/
+          cp -R apps/studio/dist/. pages-site/demo/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -192,7 +192,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: rhwp-studio/package-lock.json
+          cache-dependency-path: apps/studio/package-lock.json
 
       - name: Download WASM pkg artifact
         uses: actions/download-artifact@v4
@@ -201,7 +201,7 @@ jobs:
           path: pkg
 
       - name: Install frontend dependencies
-        working-directory: rhwp-studio
+        working-directory: apps/studio
         run: npm ci --prefer-offline --no-audit
 
       - name: Install Tauri CLI
@@ -312,7 +312,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: rhwp-studio/package-lock.json
+          cache-dependency-path: apps/studio/package-lock.json
 
       - name: Download WASM pkg artifact
         uses: actions/download-artifact@v4
@@ -321,7 +321,7 @@ jobs:
           path: pkg
 
       - name: Install frontend dependencies
-        working-directory: rhwp-studio
+        working-directory: apps/studio
         run: npm ci --prefer-offline --no-audit
 
       - name: Install Tauri CLI
@@ -509,7 +509,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: rhwp-studio/package-lock.json
+          cache-dependency-path: apps/studio/package-lock.json
 
       - name: Download WASM pkg artifact
         uses: actions/download-artifact@v4
@@ -518,7 +518,7 @@ jobs:
           path: pkg
 
       - name: Install frontend dependencies
-        working-directory: rhwp-studio
+        working-directory: apps/studio
         run: npm ci --prefer-offline --no-audit
 
       - name: Install Tauri CLI

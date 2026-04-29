@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 const srcDir = resolve(rootDir, 'src');
-const wasmDir = resolve(rootDir, '..', 'pkg');
+const wasmDir = resolve(rootDir, '..', '..', 'pkg');
 const pkg = JSON.parse(readFileSync(resolve(rootDir, 'package.json'), 'utf-8'));
 const isGithubPages = process.env.GITHUB_PAGES === 'true';
 const githubPagesBase = process.env.GITHUB_PAGES_BASE || '/uni-hwp/';
@@ -26,7 +26,7 @@ export default defineConfig({
     port: 7700,
     allowedHosts: true,
     fs: {
-      allow: ['..'],
+      allow: ['../..'],
     },
   },
 });

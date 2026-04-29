@@ -3,7 +3,7 @@
  * README/데모용 렌더링 스크린샷 생성
  *
  * 사용법:
- *   cd rhwp-studio
+ *   cd apps/studio
  *   npx vite --host 0.0.0.0 --port 7700 &
  *   node e2e/gen-screenshot.mjs [--mode=host]
  *

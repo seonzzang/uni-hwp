@@ -7,7 +7,7 @@ updates:
     open-pull-requests-limit: 10
 
   - package-ecosystem: "npm"
-    directory: "/rhwp-studio"
+    directory: "/apps/studio"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

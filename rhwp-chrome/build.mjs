@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // rhwp-chrome 빌드 스크립트
-// 1. rhwp-studio를 Vite로 빌드 → dist/
+// 1. apps/studio를 Vite로 빌드 → dist/
 // 2. WASM, 폰트, 확장 파일(manifest, background, content-script)을 dist/에 복사
 // 3. dist/ 폴더가 곧 Chrome 확장 프로그램
 
@@ -39,9 +39,9 @@ const EXCLUDE_FROM_DIST = /\.(test|spec)\.[mc]?[jt]sx?$/i;
 
 console.log('=== rhwp-chrome 빌드 시작 ===\n');
 
-// 1. Vite 빌드 (rhwp-studio → dist/)
+// 1. Vite 빌드 (apps/studio → dist/)
 console.log('[1/4] Vite 빌드...');
-const studioDir = resolve(ROOT, 'rhwp-studio');
+const studioDir = resolve(ROOT, 'apps/studio');
 run('npx', ['vite', 'build', '--config', resolve(__dirname, 'vite.config.ts')], studioDir);
 
 // index.html → viewer.html 이름 변경
@@ -81,10 +81,10 @@ copy(resolve(__dirname, 'icons'), resolve(DIST, 'icons'));
 // i18n
 copy(resolve(__dirname, '_locales'), resolve(DIST, '_locales'));
 
-// rhwp-studio 리소스 (CSS에서 참조)
+// apps/studio 리소스 (CSS에서 참조)
 mkdirSync(resolve(DIST, 'images'), { recursive: true });
-copy(resolve(ROOT, 'rhwp-studio', 'public', 'images', 'icon_small_ko.svg'), resolve(DIST, 'images', 'icon_small_ko.svg'));
-copy(resolve(ROOT, 'rhwp-studio', 'public', 'favicon.ico'), resolve(DIST, 'favicon.ico'));
+copy(resolve(ROOT, 'apps/studio', 'public', 'images', 'icon_small_ko.svg'), resolve(DIST, 'images', 'icon_small_ko.svg'));
+copy(resolve(ROOT, 'apps/studio', 'public', 'favicon.ico'), resolve(DIST, 'favicon.ico'));
 
 // 3. WASM 복사
 console.log('\n[3/4] WASM 복사...');

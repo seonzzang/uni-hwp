@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
-const studioDir = path.join(repoRoot, 'rhwp-studio');
+const studioDir = path.join(repoRoot, 'apps', 'studio');
 const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 const result = spawnSync(npmBin, ['--prefix', studioDir, 'run', 'build'], {

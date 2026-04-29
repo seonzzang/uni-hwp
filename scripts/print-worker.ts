@@ -10,7 +10,7 @@ import type {
   PrintJobRequest,
   PrintJobResult,
   PrintWorkerMessage,
-} from '../rhwp-studio/src/print/worker-types.ts';
+} from '../apps/studio/src/print/worker-types.ts';
 
 function writeMessage(message: PrintWorkerMessage): void {
   stdout.write(`${JSON.stringify(message)}\n`);
@@ -76,7 +76,8 @@ function getWorkspaceRoot(): string {
 async function loadPuppeteerCore(): Promise<typeof import('puppeteer-core')> {
   const modulePath = resolve(
     getWorkspaceRoot(),
-    'rhwp-studio',
+    'apps',
+    'studio',
     'node_modules',
     'puppeteer-core',
     'lib',
@@ -91,7 +92,8 @@ async function loadPuppeteerCore(): Promise<typeof import('puppeteer-core')> {
 async function loadPdfLib(): Promise<typeof import('pdf-lib')> {
   const modulePath = resolve(
     getWorkspaceRoot(),
-    'rhwp-studio',
+    'apps',
+    'studio',
     'node_modules',
     'pdf-lib',
     'cjs',

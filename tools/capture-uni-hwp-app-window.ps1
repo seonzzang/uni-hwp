@@ -1,5 +1,5 @@
 param(
-  [string]$ProcessName = "rhwp-studio",
+  [string]$ProcessName = "uni-hwp",
   [string]$OutputPath = "",
   [switch]$SendCtrlP,
   [switch]$ClickFileMenu,

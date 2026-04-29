@@ -1,13 +1,13 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$srcRoot = Join-Path $root 'rhwp-studio\src'
+$srcRoot = Join-Path $root 'apps\studio\src'
 $violations = @()
 
 Get-ChildItem -LiteralPath $srcRoot -Recurse -File -Include *.ts,*.tsx |
   Where-Object {
-    $_.FullName -notlike '*\rhwp-studio\src\core\*' -and
-    $_.FullName -notlike '*\rhwp-studio\src\engine-boundary\*'
+    $_.FullName -notlike '*\apps\studio\src\core\*' -and
+    $_.FullName -notlike '*\apps\studio\src\engine-boundary\*'
   } |
   ForEach-Object {
     $matches = Select-String -LiteralPath $_.FullName -Pattern @(

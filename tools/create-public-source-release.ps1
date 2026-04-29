@@ -30,7 +30,7 @@ $allowedRootFiles = @(
 
 $allowedPrefixes = @(
     "pkg/",
-    "rhwp-studio/",
+    "apps/studio/",
     "scripts/",
     "src/",
     "src-tauri/",
@@ -150,7 +150,7 @@ Uni-HWP 공개 소스 배포판 v$Version 입니다.
 
 ## 포함 범위
 
-- Uni-HWP 데스크톱 앱 소스 (`src-tauri/`, `rhwp-studio/`)
+- Uni-HWP 데스크톱 앱 소스 (`src-tauri/`, `apps/studio/`)
 - Embedded RHWP Engine 소스 (`src/`, `pkg/`)
 - 공개 빌드/보조 스크립트 (`tools/`, `scripts/`)
 - 웹/폰트 리소스 (`web/`, `ttfs/`)
@@ -168,10 +168,10 @@ Uni-HWP 공개 소스 배포판 v$Version 입니다.
 ### 데스크톱 앱
 
 ```bash
-cd rhwp-studio
+cd apps/studio
 npm install
 
-cd ../src-tauri
+cd ../../src-tauri
 cargo tauri dev
 ```
 
@@ -211,7 +211,7 @@ Uni-HWP welcomes focused, reviewable contributions.
 ```bash
 cargo build
 
-cd rhwp-studio
+cd apps/studio
 npm install
 npm run build
 ```
@@ -286,9 +286,9 @@ $versionTargets = @(
     "Cargo.toml",
     "src-tauri/Cargo.toml",
     "src-tauri/tauri.conf.json",
-    "rhwp-studio/package.json",
-    "rhwp-studio/package-lock.json",
-    "rhwp-studio/src/assets/product-info.json",
+    "apps/studio/package.json",
+    "apps/studio/package-lock.json",
+    "apps/studio/src/assets/product-info.json",
     ".github/workflows/release-bundles.yml"
 )
 

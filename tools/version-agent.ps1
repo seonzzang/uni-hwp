@@ -21,7 +21,7 @@ function Get-CodeFiles([string[]]$stagedFiles) {
   $skip = @(
     'CHANGELOG.md',
     'Cargo.lock',
-    'rhwp-studio/package-lock.json',
+    'apps/studio/package-lock.json',
     'VERSION_AGENT.md',
     '.githooks/pre-commit',
     'tools/version-agent.ps1'
@@ -71,7 +71,7 @@ function Update-VersionFiles([string]$repoRoot, [string]$nextVersion) {
 
   $targets = @(
     (Join-Path $repoRoot 'Cargo.toml'),
-    (Join-Path $repoRoot 'rhwp-studio\package.json'),
+    (Join-Path $repoRoot 'apps\studio\package.json'),
     (Join-Path $repoRoot 'src-tauri\Cargo.toml'),
     (Join-Path $repoRoot 'src-tauri\tauri.conf.json')
   )
