@@ -1,5 +1,6 @@
 import type { UniHwpEngine } from '@/engine-boundary/uni-hwp-engine';
 import type { EventBus } from '@/core/event-bus';
+import type { DocumentSession } from '@/app/document-session';
 import type { EditorContext, CommandServices } from '@/command/types';
 import type { InputHandler } from '@/engine/input-handler';
 import type { CanvasView } from '@/view/canvas-view';
@@ -7,13 +8,14 @@ import type { CanvasView } from '@/view/canvas-view';
 export function createEditorContextRuntime(params: {
   wasm: UniHwpEngine;
   eventBus: EventBus;
+  documentSession: DocumentSession;
   getInputHandler: () => InputHandler | null;
   getCanvasView: () => CanvasView | null;
 }): {
   getContext: () => EditorContext;
   commandServices: CommandServices;
 } {
-  const { wasm, eventBus, getInputHandler, getCanvasView } = params;
+  const { wasm, eventBus, documentSession, getInputHandler, getCanvasView } = params;
 
   function getContext(): EditorContext {
     const inputHandler = getInputHandler();
@@ -42,6 +44,7 @@ export function createEditorContextRuntime(params: {
     commandServices: {
       eventBus,
       wasm,
+      documentSession,
       getContext,
       getInputHandler,
       getViewportManager: () => getCanvasView()?.getViewportManager() ?? null,

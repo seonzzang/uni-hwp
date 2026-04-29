@@ -1,4 +1,5 @@
 import type { DocumentInfo } from '@/core/types';
+import type { EventBus } from '@/core/event-bus';
 import type { UniHwpEngine } from '@/engine-boundary/uni-hwp-engine';
 import type { CanvasView } from '@/view/canvas-view';
 import type { InputHandler } from '@/engine/input-handler';
@@ -9,19 +10,22 @@ import { loadDocumentFromUrlParam } from '@/app/url-param-load';
 
 type LifecycleDeps = {
   wasm: UniHwpEngine;
+  eventBus: EventBus;
   getCanvasView: () => CanvasView | null;
   getInputHandler: () => InputHandler | null;
   getToolbar: () => Toolbar | null;
   getStatusElement: () => HTMLElement;
   setDocumentTransitioning: (isTransitioning: boolean) => void;
   setTotalSections: (count: number) => void;
-  getTotalSections: () => number;
   setSectionText: (text: string) => void;
+  markDocumentClean: () => void;
+  resetToEmptyState: () => void;
 };
 
 export function createDocumentLifecycle(deps: LifecycleDeps) {
   const {
     wasm,
+    eventBus,
     getCanvasView,
     getInputHandler,
     getToolbar,
@@ -29,6 +33,8 @@ export function createDocumentLifecycle(deps: LifecycleDeps) {
     setDocumentTransitioning,
     setTotalSections,
     setSectionText,
+    markDocumentClean,
+    resetToEmptyState,
   } = deps;
 
   async function initializeDocument(docInfo: DocumentInfo, displayName: string): Promise<void> {
@@ -73,7 +79,9 @@ export function createDocumentLifecycle(deps: LifecycleDeps) {
       },
       initializeDocument,
       getStatusElement,
+      markDocumentClean,
     });
+    eventBus.emit('command-state-changed');
   }
 
   async function createNewDocument(): Promise<void> {
@@ -83,7 +91,9 @@ export function createDocumentLifecycle(deps: LifecycleDeps) {
         getStatusElement().textContent = message;
       },
       initializeDocument,
+      markDocumentClean,
     });
+    eventBus.emit('command-state-changed');
   }
 
   async function loadFromUrlParam(): Promise<void> {
@@ -92,9 +102,26 @@ export function createDocumentLifecycle(deps: LifecycleDeps) {
       getStatusElement,
       initializeDocument,
     });
+    if (wasm.pageCount > 0) {
+      markDocumentClean();
+      eventBus.emit('command-state-changed');
+    }
+  }
+
+  async function closeCurrentDocument(): Promise<void> {
+    getInputHandler()?.deactivate();
+    getCanvasView()?.clearDocument();
+    getToolbar()?.setEnabled(false);
+    wasm.closeDocument();
+    setTotalSections(1);
+    setSectionText('구역: 1 / 1');
+    markDocumentClean();
+    resetToEmptyState();
+    eventBus.emit('command-state-changed');
   }
 
   return {
+    closeCurrentDocument,
     createNewDocument,
     initializeDocument,
     loadBytes,

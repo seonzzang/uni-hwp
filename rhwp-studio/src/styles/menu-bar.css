@@ -5,12 +5,47 @@
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 0 8px;
+  padding: 0 0 0 8px;
   background: var(--color-bg-light);
   border-bottom: 1px solid #d0d0d0;
   flex-shrink: 0;
   height: 28px;
   font-size: var(--font-size-md);
+}
+
+.menu-bar-spacer {
+  margin-left: auto;
+}
+
+.menu-bar-doc-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 44px;
+  height: 28px;
+  margin-left: 0;
+  border: none;
+  background: transparent;
+  color: #aab3c1;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: none;
+}
+
+.menu-bar-doc-close:hover:not(.disabled) {
+  background: transparent;
+  color: #848fa0;
+}
+
+.menu-bar-doc-close.disabled,
+.menu-bar-doc-close:disabled {
+  background: transparent;
+  color: #c4cad4;
+  cursor: default;
 }
 
 .menu-item {

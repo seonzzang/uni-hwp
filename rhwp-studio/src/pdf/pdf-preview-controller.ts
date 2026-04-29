@@ -7,6 +7,23 @@ type PdfPreviewCloseReason = 'replace' | 'user' | 'escape' | 'external';
 
 import { pushPdfPreviewTrace } from '@/print/debug-trace';
 
+export const PDF_PREVIEW_ACTIVE_CLASS = 'pdf-preview-active';
+export const PDF_PREVIEW_CLOSE_REQUEST_EVENT = 'uni-hwp:pdf-preview-close-request';
+let activePreviewCloseHandler: (() => void) | null = null;
+
+export function isPdfPreviewActive(): boolean {
+  return activePreviewCloseHandler !== null;
+}
+
+export function requestPdfPreviewClose(): boolean {
+  if (!activePreviewCloseHandler) {
+    return false;
+  }
+
+  activePreviewCloseHandler();
+  return true;
+}
+
 export class PdfPreviewController {
   private container: HTMLDivElement | null = null;
   private headerTitleEl: HTMLDivElement | null = null;
@@ -23,6 +40,9 @@ export class PdfPreviewController {
       this.close('escape');
     }
   };
+  private handleCloseRequest = (): void => {
+    this.close('user');
+  };
 
   async open(blob: Blob, options: PdfPreviewOpenOptions = {}): Promise<void> {
     this.close('replace');
@@ -30,10 +50,12 @@ export class PdfPreviewController {
     this.currentUrl = URL.createObjectURL(blob);
     this.lastOptions = options;
     this.openedAt = performance.now();
-    document.body.classList.add('pdf-preview-active');
+    document.body.classList.add(PDF_PREVIEW_ACTIVE_CLASS);
+    activePreviewCloseHandler = this.handleCloseRequest;
     pushPdfPreviewTrace('preview controller open start');
     this.render();
     window.addEventListener('keydown', this.handleKeyDown);
+    window.addEventListener(PDF_PREVIEW_CLOSE_REQUEST_EVENT, this.handleCloseRequest);
     window.setTimeout(() => {
       if (!this.container || !this.container.isConnected) {
         pushPdfPreviewTrace('preview container missing after open; restoring');
@@ -51,6 +73,10 @@ export class PdfPreviewController {
 
   private close(reason: PdfPreviewCloseReason): void {
     window.removeEventListener('keydown', this.handleKeyDown);
+    window.removeEventListener(PDF_PREVIEW_CLOSE_REQUEST_EVENT, this.handleCloseRequest);
+    if (activePreviewCloseHandler === this.handleCloseRequest) {
+      activePreviewCloseHandler = null;
+    }
     if (this.restoreTimerId !== null) {
       window.clearTimeout(this.restoreTimerId);
       this.restoreTimerId = null;
@@ -74,15 +100,17 @@ export class PdfPreviewController {
       this.restoreTimerId = window.setTimeout(() => {
         this.restoreTimerId = null;
         if (!this.currentUrl || this.container) return;
-        document.body.classList.add('pdf-preview-active');
+        document.body.classList.add(PDF_PREVIEW_ACTIVE_CLASS);
+        activePreviewCloseHandler = this.handleCloseRequest;
         pushPdfPreviewTrace('preview restored after unexpected dispose');
         this.render();
         window.addEventListener('keydown', this.handleKeyDown);
+        window.addEventListener(PDF_PREVIEW_CLOSE_REQUEST_EVENT, this.handleCloseRequest);
       }, 0);
       return;
     }
 
-    document.body.classList.remove('pdf-preview-active');
+    document.body.classList.remove(PDF_PREVIEW_ACTIVE_CLASS);
     if (this.currentUrl) {
       URL.revokeObjectURL(this.currentUrl);
       this.currentUrl = null;
