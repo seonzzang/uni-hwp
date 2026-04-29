@@ -2,6 +2,46 @@
 
 이 문서는 Uni-HWP의 공개 기준 버전과 버전별 주요 변경 사항을 기록합니다.
 
+## 8.1.102
+
+루트 폴더에 노출되어 있던 `rhwp-*` 앱/확장/공유 모듈 흔적을 Uni-HWP 중심 구조로 정리한 아키텍처 패치 버전입니다.
+
+### 핵심 상태
+
+- RHWP 엔진 코어는 수정하지 않고 유지
+- 사용자 기능과 UI 동작은 변경하지 않음
+- 앱 셸, 확장 앱, 공유 보안 패키지의 저장 위치만 Uni-HWP 구조로 재배치
+- 엔진 내부 파일명과 wasm 생성물명은 RHWP upstream 업데이트 추적성을 위해 보존
+
+### 이번 반영 기능
+
+- `rhwp-studio/`를 `apps/studio/`로 이동
+  - Tauri `frontendDist`, Vite alias, TypeScript path, dev server, 빌드 스크립트, GitHub Actions 경로 갱신
+  - 데스크톱 앱 실행 경로를 새 앱 셸 위치와 동기화
+- 확장 앱 폴더를 `apps/` 하위로 이동
+  - `rhwp-chrome/` -> `apps/chrome-extension/`
+  - `rhwp-safari/` -> `apps/safari-extension/`
+  - `rhwp-vscode/` -> `apps/vscode-extension/`
+  - 확장 빌드 스크립트의 상대경로 보정
+- 공유 보안 유틸을 `packages/shared-security/`로 이동
+  - 루트 `rhwp-shared/` 노출 제거
+  - Safari 확장 참조 주석 갱신
+- README 아키텍처 다이어그램을 새 폴더 구조와 Engine Boundary 정책에 맞춰 갱신
+
+### 구현 범위
+
+- RHWP 엔진 코어 비수정
+- Uni-HWP 저장소 구조, 빌드 경로, 문서 구조만 수정
+- `src/`, `pkg/`, Cargo 루트는 엔진 교체 용이성을 위해 이동 보류
+
+### 검증
+
+- `npm run build` 통과 (`apps/studio`)
+- `cargo check` 통과 (`src-tauri`)
+- `cargo tauri dev --no-watch` 실행 확인
+- Chrome extension `npm run build` 통과
+- 루트 `rhwp-*` 폴더 0개 확인
+
 ## 8.1.101
 
 문서 닫기 UX를 완성한 패치 버전입니다.

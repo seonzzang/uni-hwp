@@ -1,6 +1,6 @@
 [package]
 name = "uni-hwp"
-version = "8.1.101"
+version = "8.1.102"
 description = "Uni-HWP Korean desktop distribution"
 authors = ["Uni-HWP Studio"]
 license = "MIT"
@@ -19,7 +19,6 @@ tauri-plugin-fs = "2.0"
 tauri-plugin-dialog = "2.0"
 tauri-plugin-shell = "2.0.0-rc.4"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "native-tls"] }
-
 
 
 

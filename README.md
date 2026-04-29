@@ -40,6 +40,11 @@ Uni-HWP의 버전 및 릴리즈 관리는 코어 엔진의 호환성을 유지�
   - WASM Bridge 고도화 및 메모리 관리 체계 개선
   - 강력한 인쇄/PDF 통합 파이프라인 제공
   - 파일 입출력 및 외부 리소스(Drag & Drop) 처리의 안정성 확보
+- **Repository Boundary Layout**:
+  - `apps/studio`: Uni-HWP 데스크톱/웹 앱 셸
+  - `apps/chrome-extension`, `apps/safari-extension`, `apps/vscode-extension`: 확장 앱 계층
+  - `packages/shared-security`: 확장 모듈 공용 보안 유틸
+  - `src`, `pkg`, `src-tauri`: RHWP 엔진 추적성과 Tauri 통합을 보존하는 핵심 경계
 
 ---
 
@@ -84,7 +89,8 @@ npm install
 npx vite --host 0.0.0.0 --port 7700
 
 # Tauri Desktop App 실행
-npm run tauri dev
+cd ../../src-tauri
+cargo tauri dev
 ```
 
 ## Maintenance Documents
@@ -106,24 +112,49 @@ RHWP 엔진 업그레이드 및 Uni-HWP 유지보수에 필요한 핵심 문서�
 
 ```mermaid
 graph TB
-    HWP["HWP/HWPX File"] --> Engine["Embedded RHWP Engine"]
-    Engine --> Parser["Parser / Document Model"]
-    Parser --> Core["Document Core"]
-    Core --> Render["Rendering / Pagination / Layout"]
-    Render --> SVG["SVG Output"]
-    Render --> Canvas["Canvas Output"]
-    Core --> WASM["WASM API"]
+    subgraph EngineBoundary["Embedded RHWP Engine Boundary"]
+        HWP["HWP/HWPX File"] --> Engine["RHWP Parser / Document Model"]
+        Engine --> Core["Document Core"]
+        Core --> Render["Rendering / Pagination / Layout"]
+        Render --> SVG["SVG Output"]
+        Render --> Canvas["Canvas Output"]
+        Core --> WASM["WASM API"]
+    end
 
-    WASM --> Adapter["Black-Box Adapter / wasm-bridge"]
+    subgraph AdapterLayer["Black-Box Adapter Layer"]
+        WASM --> Adapter["Uni-HWP Engine Adapter / wasm-bridge"]
+        Adapter --> Lifecycle["Document Lifecycle"]
+        Adapter --> Validation["Validation / Compatibility Guard"]
+    end
 
-    Adapter --> Studio["Uni-HWP Studio UI"]
-    Adapter --> View["Canvas View / Input / Toolbar"]
-    Adapter --> DocFlow["Document Load Lifecycle"]
+    subgraph Apps["apps/"]
+        Studio["apps/studio<br/>Uni-HWP App Shell"]
+        Chrome["apps/chrome-extension"]
+        Safari["apps/safari-extension"]
+        VSCode["apps/vscode-extension"]
+    end
 
+    subgraph Packages["packages/"]
+        Security["packages/shared-security"]
+    end
+
+    subgraph Desktop["src-tauri/"]
+        Tauri["Tauri App Services"]
+        OS["Temp Files / Cleanup / OS Integration"]
+    end
+
+    Adapter --> Studio
+    Studio --> View["Canvas View / Input / Toolbar"]
     Studio --> PrintDialog["Print Dialog UX"]
     Studio --> PDFViewer["In-App PDF Viewer"]
     Studio --> LinkDrop["Remote Link Drop UX"]
     Studio --> Progress["Progress / ETA / Cancel Overlay"]
+
+    Chrome --> Adapter
+    Safari --> Adapter
+    VSCode --> Adapter
+    Chrome --> Security
+    Safari --> Security
 
     PrintDialog --> PrintService["Print / PDF Service"]
     PDFViewer --> PrintService
@@ -131,10 +162,9 @@ graph TB
     LinkDrop --> RemoteService["Remote HWP Service"]
 
     PrintService --> Worker["Print Worker Pipeline"]
-    Worker --> Tauri["Tauri App Services"]
+    Worker --> Tauri
     RemoteService --> Tauri
-
-    Tauri --> Temp["Temp Files / Cleanup / OS Integration"]
+    Tauri --> OS
     Worker --> PDF["Chunk PDF / Merge / Save / Open"]
 ```
 
@@ -152,7 +182,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. **제품 및 제조사 정보 (Product & Manufacturer)**
   - 제품명 (Product): Uni HWP
-  - 버전 (Version): 8.1.101
+  - 버전 (Version): 8.1.102
    - 제조사 (Manufacturer): Uni-HWP Studio
    - Copyright © 2026 Uni-HWP Studio
 

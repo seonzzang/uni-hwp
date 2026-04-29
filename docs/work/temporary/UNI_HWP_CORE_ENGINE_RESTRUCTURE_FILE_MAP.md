@@ -1,7 +1,7 @@
 # Uni-HWP Core Engine Restructure File Map
 
 문서 버전:
-- `8.1.101+`
+- `8.1.102`
 
 ## 1. 목적
 
@@ -96,7 +96,7 @@ LICENSE
 CONTRIBUTING.md
 ```
 
-`src/`, `pkg/`, Cargo 루트는 RHWP 엔진 업데이트 추적성을 보존하기 위해 이번 단계에서 이동하지 않는다.
+`src/`, `pkg/`, Cargo 루트는 RHWP 엔진 업데이트 추적성을 보존하기 위해 `8.1.102` 단계에서 이동하지 않는다.
 
 장기 목표 후보 구조는 다음과 같지만, 실제 적용은 별도 검증 프로젝트로 분리한다.
 
