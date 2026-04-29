@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// rhwp-chrome 빌드 스크립트
+// Uni-HWP Chrome extension 빌드 스크립트
 // 1. apps/studio를 Vite로 빌드 → dist/
 // 2. WASM, 폰트, 확장 파일(manifest, background, content-script)을 dist/에 복사
 // 3. dist/ 폴더가 곧 Chrome 확장 프로그램
@@ -10,7 +10,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, '..');
+const ROOT = resolve(__dirname, '..', '..');
 const DIST = resolve(__dirname, 'dist');
 
 /**
@@ -37,12 +37,13 @@ function copy(src, dest, options = {}) {
 /** 배포본에서 제외할 파일 패턴 (테스트 등). */
 const EXCLUDE_FROM_DIST = /\.(test|spec)\.[mc]?[jt]sx?$/i;
 
-console.log('=== rhwp-chrome 빌드 시작 ===\n');
+console.log('=== Uni-HWP Chrome extension 빌드 시작 ===\n');
 
 // 1. Vite 빌드 (apps/studio → dist/)
 console.log('[1/4] Vite 빌드...');
 const studioDir = resolve(ROOT, 'apps/studio');
-run('npx', ['vite', 'build', '--config', resolve(__dirname, 'vite.config.ts')], studioDir);
+const viteCli = resolve(studioDir, 'node_modules', 'vite', 'bin', 'vite.js');
+run(process.execPath, [viteCli, 'build', '--config', resolve(__dirname, 'vite.config.ts')], studioDir);
 
 // index.html → viewer.html 이름 변경
 const indexHtml = resolve(DIST, 'index.html');

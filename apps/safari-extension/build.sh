@@ -1,6 +1,6 @@
 #!/bin/bash
-# rhwp-safari 빌드 스크립트
-# 1. rhwp-chrome의 Vite 빌드 결과(뷰어)를 기반으로 Safari 전용 dist 생성
+# Uni-HWP Safari extension 빌드 스크립트
+# 1. Chrome extension의 Vite 빌드 결과(뷰어)를 기반으로 Safari 전용 dist 생성
 # 2. Safari 전용 소스(src/)로 background, content-script, manifest 교체
 # 3. safari-web-extension-converter로 Xcode 프로젝트 재생성
 # 4. xcodebuild로 macOS 빌드
@@ -8,16 +8,16 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+APPS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST="$SCRIPT_DIR/dist"
 SRC="$SCRIPT_DIR/src"
-CHROME_DIST="$ROOT/rhwp-chrome/dist"
+CHROME_DIST="$APPS_ROOT/chrome-extension/dist"
 
-echo "=== rhwp-safari 빌드 시작 ==="
+echo "=== Uni-HWP Safari extension 빌드 시작 ==="
 
 # 1. Chrome 확장 빌드 (뷰어 + 리소스)
 echo "[1/5] Chrome 확장 빌드..."
-cd "$ROOT/rhwp-chrome" && npm run build
+cd "$APPS_ROOT/chrome-extension" && npm run build
 
 # 2. Chrome dist를 Safari dist로 복사
 echo "[2/5] Safari dist 생성..."

@@ -3,32 +3,33 @@ import { resolve } from 'path';
 import { readFileSync } from 'fs';
 
 // apps/studio를 Chrome 확장용으로 빌드
-// 산출물: rhwp-chrome/dist/ → viewer.html + JS/CSS + WASM + 폰트
+// 산출물: apps/chrome-extension/dist/ → viewer.html + JS/CSS + WASM + 폰트
 
 // apps/studio 의 package.json 버전을 __APP_VERSION__ 으로 주입
 // (apps/studio/vite.config.ts 와 동일 패턴 — about-dialog 가 ReferenceError 나지 않도록)
 const studioPkg = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'apps/studio', 'package.json'), 'utf-8'),
+  readFileSync(resolve(__dirname, '..', 'studio', 'package.json'), 'utf-8'),
 );
 
 export default defineConfig({
-  root: resolve(__dirname, '..', 'apps/studio'),
+  root: resolve(__dirname, '..', 'studio'),
   publicDir: false, // public/ 폴더 제외 (samples, images 등 불필요)
   define: {
     __APP_VERSION__: JSON.stringify(studioPkg.version),
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, '..', 'apps/studio', 'src'),
-      '@wasm': resolve(__dirname, '..', 'pkg'),
+      '@': resolve(__dirname, '..', 'studio', 'src'),
+      '@wasm': resolve(__dirname, '..', '..', 'pkg'),
     },
   },
   build: {
     outDir: resolve(__dirname, 'dist'),
     emptyDir: true,
+    emptyOutDir: true,
     rollupOptions: {
       input: {
-        viewer: resolve(__dirname, '..', 'apps/studio', 'index.html'),
+        viewer: resolve(__dirname, '..', 'studio', 'index.html'),
       },
     },
     // WASM inline 방지 — 별도 파일로 유지
@@ -39,7 +40,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 7701,
     fs: {
-      allow: ['..'],
+      allow: ['../..'],
     },
   },
 });

@@ -18,7 +18,7 @@ const extensionConfig = {
   resolve: {
     extensions: [".ts", ".js"],
     alias: {
-      "@rhwp-wasm": path.resolve(__dirname, "..", "pkg"),
+      "@rhwp-wasm": path.resolve(__dirname, "..", "..", "pkg"),
     },
   },
   module: {
@@ -54,7 +54,7 @@ const webviewConfig = {
   resolve: {
     extensions: [".ts", ".js"],
     alias: {
-      "@rhwp-wasm": path.resolve(__dirname, "..", "pkg"),
+      "@rhwp-wasm": path.resolve(__dirname, "..", "..", "pkg"),
     },
   },
   module: {
@@ -78,7 +78,7 @@ const webviewConfig = {
     new CopyPlugin({
       patterns: [
         {
-          from: path.resolve(__dirname, "..", "pkg", "rhwp_bg.wasm"),
+          from: path.resolve(__dirname, "..", "..", "pkg", "rhwp_bg.wasm"),
           to: path.resolve(__dirname, "dist", "media", "rhwp_bg.wasm"),
         },
         // 필수 오픈소스 폰트만 번들 (크기 최적화)
@@ -90,7 +90,7 @@ const webviewConfig = {
           "NanumGothic-Regular.woff2", "NanumMyeongjo-Regular.woff2",
           "GowunBatang-Regular.woff2", "GowunDodum-Regular.woff2",
         ].map(f => ({
-          from: path.resolve(__dirname, "..", "web", "fonts", f),
+          from: path.resolve(__dirname, "..", "..", "web", "fonts", f),
           to: path.resolve(__dirname, "dist", "media", "fonts", f),
         })),
       ],

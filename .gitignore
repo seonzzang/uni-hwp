@@ -68,17 +68,17 @@ README.public.md
 # 한컴 도움말 (저작권 보호)
 mydocs/manual/hwp/Help/
 
-# rhwp-vscode 빌드 산출물
-rhwp-vscode/media/rhwp.js
-rhwp-vscode/media/rhwp_bg.wasm
+# VS Code extension 빌드 산출물
+apps/vscode-extension/media/rhwp.js
+apps/vscode-extension/media/rhwp_bg.wasm
 
-# rhwp-chrome 빌드 산출물
-rhwp-chrome/dist/
+# Chrome extension 빌드 산출물
+apps/chrome-extension/dist/
 
-# rhwp-safari 빌드 산출물
-rhwp-safari/dist/
-rhwp-safari/HWP Viewer/
-rhwp-safari/.DS_Store
+# Safari extension 빌드 산출물
+apps/safari-extension/dist/
+apps/safari-extension/HWP Viewer/
+apps/safari-extension/.DS_Store
 
 # Local run artifacts
 /Release_Temp/
