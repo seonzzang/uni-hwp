@@ -13,7 +13,7 @@
     "@types/chrome": "^0.1.40",
     "@types/pdfkit": "^0.17.6",
     "@types/svg-to-pdfkit": "^0.1.4",
-    "puppeteer-core": "^24.40.0",
+    "puppeteer-core": "^24.42.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"
   },
