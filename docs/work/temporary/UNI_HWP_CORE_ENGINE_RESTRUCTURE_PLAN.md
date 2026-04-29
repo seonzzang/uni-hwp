@@ -150,6 +150,12 @@ CONTRIBUTING.md
 - 엔진 업데이트 경로가 명확히 문서화된다.
 - 엔진 내부 이름 변경이 발생하지 않는다.
 
+실행 판단:
+- `src/`, `pkg/`, Cargo 루트는 RHWP upstream 교체/비교와 wasm-pack/Tauri 빌드 경로에 직접 연결된다.
+- 현 단계에서 실제 엔진 소스까지 `embedded-engine/rhwp`로 이동하면 유지보수성이 좋아지는 것이 아니라, 오히려 신규 RHWP 버전 반영 시 충돌면이 커질 수 있다.
+- 따라서 `8.1.101+ upgrade` 작업에서는 루트에 직접 노출된 `rhwp-*` 앱/확장/공유 폴더만 제거하고, 엔진 내부 파일명과 생성물명은 보존한다.
+- Engine Boundary는 `apps/studio/src/engine-boundary/`와 `src-tauri`/WASM bridge 계층에서 유지하며, 실제 엔진 디렉터리 이동은 별도 장기 작업으로 분리한다.
+
 ### Phase 6. 통합 검증
 
 목표:

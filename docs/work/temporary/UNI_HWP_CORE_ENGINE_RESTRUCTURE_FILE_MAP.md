@@ -74,6 +74,32 @@
 
 ## 7. 완료 후 기대 루트 구조
 
+이번 단계의 검증 완료 구조는 다음과 같다.
+
+```text
+.github/
+apps/
+  studio/
+  chrome-extension/
+  safari-extension/
+  vscode-extension/
+assets/
+docs/
+packages/
+  shared-security/
+site/
+src/
+src-tauri/
+pkg/
+README.md
+LICENSE
+CONTRIBUTING.md
+```
+
+`src/`, `pkg/`, Cargo 루트는 RHWP 엔진 업데이트 추적성을 보존하기 위해 이번 단계에서 이동하지 않는다.
+
+장기 목표 후보 구조는 다음과 같지만, 실제 적용은 별도 검증 프로젝트로 분리한다.
+
 ```text
 .github/
 apps/
