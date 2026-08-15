@@ -1,12 +1,6 @@
 name: Build Uni-HWP macOS Release Bundles
 
 on:
-  push:
-    branches:
-      - main
-      - "release/**"
-    paths-ignore:
-      - "site/**"
   workflow_dispatch:
 
 permissions:

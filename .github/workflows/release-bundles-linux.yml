@@ -1,12 +1,6 @@
 name: Build Uni-HWP Linux Release Bundle
 
 on:
-  push:
-    branches:
-      - main
-      - "release/**"
-    paths-ignore:
-      - "site/**"
   workflow_dispatch:
 
 permissions:
