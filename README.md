@@ -209,6 +209,8 @@ flowchart TB
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+온라인 데모와 배포된 현재 화면은 [https://seonzzang.github.io/uni-hwp](https://seonzzang.github.io/uni-hwp) 에서 확인할 수 있습니다.
+
 ## Product Information
 
 1. **제품 및 제조사 정보 (Product & Manufacturer)**

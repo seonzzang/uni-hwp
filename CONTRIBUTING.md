@@ -6,7 +6,7 @@ Uni-HWP 프로젝트의 생태계와 관련 리소스를 안내합니다.
 
 코드를 직접 빌드하지 않고도 다음 경로를 통해 Uni-HWP의 기능을 체험하실 수 있도록 준비 중입니다:
 
-- **온라인 데모 (Online Demo)** — 웹 브라우저에서 바로 HWP 파일을 열어볼 수 있는 데모 페이지입니다.
+- **온라인 데모 (Online Demo)** — [https://seonzzang.github.io/uni-hwp](https://seonzzang.github.io/uni-hwp) 에서 웹 브라우저로 바로 HWP 파일을 열어볼 수 있는 데모 페이지입니다.
 - **VS Code 확장 (VS Code Extension)** — VS Code 에디터 내에서 HWP 파일의 실시간 미리보기를 제공합니다.
 - **npm 패키지 (npm Package)** — 웹 서비스에 HWP 에디터 기능을 통합할 수 있는 코어 라이브러리입니다.
 
