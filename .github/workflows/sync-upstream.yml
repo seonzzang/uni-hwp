@@ -48,28 +48,12 @@ jobs:
           sync_paths=(
             "Cargo.toml"
             "Cargo.lock"
-            "bindings"
-            "docs"
             "examples"
-            "fuzz"
-            "gym"
-            "mydocs"
             "npm"
-            "pdf-2020"
-            "pdf-large"
-            "pdf"
-            "rhwp-chrome"
-            "rhwp-firefox"
-            "rhwp-ios"
-            "rhwp-safari"
-            "rhwp-shared"
-            "rhwp-studio"
-            "rhwp-vscode"
             "src"
             "scripts"
             "template"
             "tests"
-            "tools"
             "ttfs"
             "typescript"
             "web"
@@ -112,7 +96,7 @@ jobs:
             --base main \
             --head "${SYNC_BRANCH}" \
             --title "chore: sync upstream RHWP" \
-            --body $'This PR syncs shared source files from `edwardkim/rhwp` into `uni-hwp`.\n\nRepo-specific files such as `apps/studio`, site deployment, and release workflows are intentionally left untouched.')"
+            --body $'This PR syncs shared source files from `edwardkim/rhwp` into `uni-hwp`.\n\nRepo-specific files such as `apps/`, `docs/public/`, site deployment, and release workflows are intentionally left untouched.')"
           echo "PR_URL=$pr_url" >> "$GITHUB_ENV"
 
       - name: Enable auto-merge
