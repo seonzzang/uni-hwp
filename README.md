@@ -23,6 +23,8 @@ Uni-HWP는 오픈소스 `rhwp`를 Embedded RHWP Engine으로 포함하고, 그 �
 
 Uni-HWP는 문서의 파싱 및 렌더링을 담당하는 **코어 엔진 영역은 오픈소스 `rhwp`의 upstream 추적성을 최대한 보존**하고, 실사용자의 편의성과 애플리케이션의 완성도를 높이는 앱 계층을 별도로 발전시킵니다.
 
+- **RHWP upstream baseline**: 현재 기준선은 `edwardkim/rhwp@v0.8.4`이며, branch head가 아니라 tagged release를 기준으로 판올림 여부를 판단합니다.
+
 ### 핵심 개발 목표
 
 - **사용자 편의성(UX) 극대화**: 직관적인 인쇄 다이얼로그, PDF 내보내기 진행 상황 시각화(ETA), 인앱(In-app) 뷰어 등 실무에 즉시 투입 가능한 수준의 UX 제공.
