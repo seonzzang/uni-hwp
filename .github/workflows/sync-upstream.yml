@@ -53,7 +53,6 @@ jobs:
             "tests"
             "ttfs"
             "typescript"
-            "web"
           )
 
           for path in "${sync_paths[@]}"; do

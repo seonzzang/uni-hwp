@@ -18,7 +18,7 @@ $result = [ordered]@{
     'Cargo.toml',
     'Cargo.lock',
     'apps/studio/public/rhwp.js',
-    'web/rhwp.js',
+    'web/**',
     'typescript/rhwp.d.ts'
   )
   appBoundaryPaths = @(

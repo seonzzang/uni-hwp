@@ -13,10 +13,9 @@ sync_paths=(
   "tests"
   "ttfs"
   "typescript"
-  "web"
 )
 
-for blocked in "apps" "site" "docs/public" ".github/workflows" "src-tauri"; do
+for blocked in "apps" "site" "docs/public" ".github/workflows" "src-tauri" "web"; do
   for path in "${sync_paths[@]}"; do
     if [[ "$path" == "$blocked" ]] || [[ "$path" == "$blocked"* ]]; then
       echo "sync boundary violation: $blocked is in sync list" >&2
@@ -25,7 +24,7 @@ for blocked in "apps" "site" "docs/public" ".github/workflows" "src-tauri"; do
   done
 done
 
-for blocked in "Cargo.toml" "Cargo.lock" "apps" "site" "docs/public" ".github/workflows" "src-tauri"; do
+for blocked in "Cargo.toml" "Cargo.lock" "apps" "site" "docs/public" ".github/workflows" "src-tauri" "web"; do
   for path in "${sync_paths[@]}"; do
     if [[ "$path" == "$blocked" ]] || [[ "$path" == "$blocked"* ]]; then
       echo "sync boundary violation: $blocked is in sync list" >&2
