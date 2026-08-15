@@ -79,8 +79,11 @@ fn stage5_ref_table_smoke() {
     }
     // 표가 section.xml 에 아직 출력되지 않으므로 IrDiff 가 있을 수 있다.
     // 단, 파싱·직렬화 자체는 성공해야 함 (크래시 금지).
-    assert!(diff.is_empty() || !diff.differences.is_empty(),
-        "ref_table roundtrip must not crash, diff={}", diff.differences.len());
+    assert!(
+        diff.is_empty() || !diff.differences.is_empty(),
+        "ref_table roundtrip must not crash, diff={}",
+        diff.differences.len()
+    );
 }
 
 #[test]
@@ -103,6 +106,140 @@ fn stage5_large_real_doc_2025_q2_smoke() {
     let _ = roundtrip_ir_diff(bytes).expect("2025 2분기 large doc roundtrip must not crash");
 }
 
+// ---------- #172: 컨트롤 직렬화 라운드트립 검증 --------------------------------
+// 표/그림/도형/각주 컨트롤이 HWPX 직렬화 → 재파싱 사이클에서 보존되는지 확인.
+
+#[test]
+fn stage5_table_control_preserved_on_roundtrip() {
+    use rhwp::model::control::Control;
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    let bytes = include_bytes!("../samples/표-텍스트.hwpx");
+    let doc1 = parse_hwpx(bytes).expect("parse 표-텍스트");
+
+    let orig_tables: usize = doc1
+        .sections
+        .iter()
+        .flat_map(|s| s.paragraphs.iter())
+        .flat_map(|p| p.controls.iter())
+        .filter(|c| matches!(c, Control::Table(_)))
+        .count();
+    assert!(orig_tables > 0, "표-텍스트.hwpx must contain tables");
+
+    let out = serialize_hwpx(&doc1).expect("serialize");
+    let doc2 = parse_hwpx(&out).expect("reparse");
+
+    let rt_tables: usize = doc2
+        .sections
+        .iter()
+        .flat_map(|s| s.paragraphs.iter())
+        .flat_map(|p| p.controls.iter())
+        .filter(|c| matches!(c, Control::Table(_)))
+        .count();
+    assert_eq!(
+        rt_tables, orig_tables,
+        "Table count: original={}, roundtrip={}",
+        orig_tables, rt_tables
+    );
+}
+
+#[test]
+fn stage5_picture_bindata_preserved_on_roundtrip() {
+    use rhwp::model::control::Control;
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    let bytes = include_bytes!("../samples/tac-img-02.hwpx");
+    let doc1 = parse_hwpx(bytes).expect("parse tac-img-02");
+
+    let orig_pics: usize = doc1
+        .sections
+        .iter()
+        .flat_map(|s| s.paragraphs.iter())
+        .flat_map(|p| p.controls.iter())
+        .filter(|c| matches!(c, Control::Picture(_)))
+        .count();
+    assert!(orig_pics > 0, "tac-img-02.hwpx must contain pictures");
+    assert!(
+        !doc1.bin_data_content.is_empty(),
+        "tac-img-02.hwpx must contain BinData"
+    );
+
+    let out = serialize_hwpx(&doc1).expect("serialize");
+    let doc2 = parse_hwpx(&out).expect("reparse");
+
+    assert_eq!(
+        doc2.bin_data_content.len(),
+        doc1.bin_data_content.len(),
+        "BinData count mismatch"
+    );
+
+    for (i, (orig, rt)) in doc1
+        .bin_data_content
+        .iter()
+        .zip(doc2.bin_data_content.iter())
+        .enumerate()
+    {
+        assert_eq!(
+            orig.data.len(),
+            rt.data.len(),
+            "[BinData#{}] size: {} vs {}",
+            i,
+            orig.data.len(),
+            rt.data.len()
+        );
+    }
+
+    let rt_pics: usize = doc2
+        .sections
+        .iter()
+        .flat_map(|s| s.paragraphs.iter())
+        .flat_map(|p| p.controls.iter())
+        .filter(|c| matches!(c, Control::Picture(_)))
+        .count();
+    assert_eq!(
+        rt_pics, orig_pics,
+        "Picture count: original={}, roundtrip={}",
+        orig_pics, rt_pics
+    );
+}
+
+#[test]
+fn stage5_large_doc_table_count_preserved() {
+    use rhwp::model::control::Control;
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    let bytes = include_bytes!("../samples/hwpx/2025년 1분기 해외직접투자 보도자료f.hwpx");
+    let doc1 = parse_hwpx(bytes).expect("parse");
+
+    let orig_tables: usize = doc1
+        .sections
+        .iter()
+        .flat_map(|s| s.paragraphs.iter())
+        .flat_map(|p| p.controls.iter())
+        .filter(|c| matches!(c, Control::Table(_)))
+        .count();
+
+    let out = serialize_hwpx(&doc1).expect("serialize");
+    let doc2 = parse_hwpx(&out).expect("reparse");
+
+    let rt_tables: usize = doc2
+        .sections
+        .iter()
+        .flat_map(|s| s.paragraphs.iter())
+        .flat_map(|p| p.controls.iter())
+        .filter(|c| matches!(c, Control::Table(_)))
+        .count();
+
+    assert_eq!(
+        rt_tables, orig_tables,
+        "Large doc table count: original={}, roundtrip={}",
+        orig_tables, rt_tables
+    );
+}
+
 // ---------- #177 Stage 2: Serializer 원본 lineseg 보존 -----------------------
 // rhwp 가 한컴 HWPX 의 `<hp:lineseg>` 값을 저장 시 훼손 없이 보존하는지 확인.
 // 원본 lineseg 값이 재파싱 IR 과 일치해야 함.
@@ -119,27 +256,51 @@ fn task177_lineseg_preserved_on_roundtrip_ref_text() {
 
     assert_eq!(doc1.sections.len(), doc2.sections.len());
     for (si, (s1, s2)) in doc1.sections.iter().zip(doc2.sections.iter()).enumerate() {
-        assert_eq!(s1.paragraphs.len(), s2.paragraphs.len(), "section {} paragraph count", si);
+        assert_eq!(
+            s1.paragraphs.len(),
+            s2.paragraphs.len(),
+            "section {} paragraph count",
+            si
+        );
         for (pi, (p1, p2)) in s1.paragraphs.iter().zip(s2.paragraphs.iter()).enumerate() {
             assert_eq!(
                 p1.line_segs.len(),
                 p2.line_segs.len(),
                 "section {} paragraph {} line_segs count",
-                si, pi,
+                si,
+                pi,
             );
             for (li, (l1, l2)) in p1.line_segs.iter().zip(p2.line_segs.iter()).enumerate() {
-                assert_eq!(l1.text_start, l2.text_start,
-                    "sec {} para {} lineseg {} text_start", si, pi, li);
-                assert_eq!(l1.vertical_pos, l2.vertical_pos,
-                    "sec {} para {} lineseg {} vertical_pos", si, pi, li);
-                assert_eq!(l1.line_height, l2.line_height,
-                    "sec {} para {} lineseg {} line_height", si, pi, li);
-                assert_eq!(l1.text_height, l2.text_height,
-                    "sec {} para {} lineseg {} text_height", si, pi, li);
-                assert_eq!(l1.baseline_distance, l2.baseline_distance,
-                    "sec {} para {} lineseg {} baseline_distance", si, pi, li);
-                assert_eq!(l1.line_spacing, l2.line_spacing,
-                    "sec {} para {} lineseg {} line_spacing", si, pi, li);
+                assert_eq!(
+                    l1.text_start, l2.text_start,
+                    "sec {} para {} lineseg {} text_start",
+                    si, pi, li
+                );
+                assert_eq!(
+                    l1.vertical_pos, l2.vertical_pos,
+                    "sec {} para {} lineseg {} vertical_pos",
+                    si, pi, li
+                );
+                assert_eq!(
+                    l1.line_height, l2.line_height,
+                    "sec {} para {} lineseg {} line_height",
+                    si, pi, li
+                );
+                assert_eq!(
+                    l1.text_height, l2.text_height,
+                    "sec {} para {} lineseg {} text_height",
+                    si, pi, li
+                );
+                assert_eq!(
+                    l1.baseline_distance, l2.baseline_distance,
+                    "sec {} para {} lineseg {} baseline_distance",
+                    si, pi, li
+                );
+                assert_eq!(
+                    l1.line_spacing, l2.line_spacing,
+                    "sec {} para {} lineseg {} line_spacing",
+                    si, pi, li
+                );
             }
         }
     }
@@ -160,10 +321,50 @@ fn task177_lineseg_preserved_on_roundtrip_ref_mixed() {
     let p2 = &doc2.sections[0].paragraphs[0];
     assert_eq!(p1.line_segs.len(), p2.line_segs.len());
     for (a, b) in p1.line_segs.iter().zip(p2.line_segs.iter()) {
-        assert_eq!(a.line_height, b.line_height,
-            "line_height 보존 실패: IR {} vs reparsed {}", a.line_height, b.line_height);
+        assert_eq!(
+            a.line_height, b.line_height,
+            "line_height 보존 실패: IR {} vs reparsed {}",
+            a.line_height, b.line_height
+        );
         assert_eq!(a.vertical_pos, b.vertical_pos);
     }
+}
+
+#[test]
+fn task177_linebreak_preserved_on_roundtrip_ref_mixed() {
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    let bytes = include_bytes!("../samples/hwpx/ref/ref_mixed.hwpx");
+    let doc1 = parse_hwpx(bytes).expect("parse ref_mixed");
+    let out = serialize_hwpx(&doc1).expect("serialize");
+    let doc2 = parse_hwpx(&out).expect("reparse");
+
+    let mut newline_paragraphs = 0usize;
+
+    assert_eq!(doc1.sections.len(), doc2.sections.len());
+    for (si, (s1, s2)) in doc1.sections.iter().zip(doc2.sections.iter()).enumerate() {
+        assert_eq!(
+            s1.paragraphs.len(),
+            s2.paragraphs.len(),
+            "section {} paragraph count",
+            si
+        );
+        for (pi, (p1, p2)) in s1.paragraphs.iter().zip(s2.paragraphs.iter()).enumerate() {
+            if !p1.text.contains('\n') {
+                continue;
+            }
+            newline_paragraphs += 1;
+            assert_eq!(p1.text, p2.text, "sec {} para {} text", si, pi);
+            assert_eq!(
+                p1.char_offsets, p2.char_offsets,
+                "sec {} para {} char_offsets",
+                si, pi
+            );
+        }
+    }
+
+    assert!(newline_paragraphs > 0, "newline paragraph fixture missing");
 }
 
 // ---------- #177 Stage 4: 회귀 검증 샘플 ----------
@@ -182,19 +383,32 @@ fn task177_hwpx_02_regression() {
     let doc2 = parse_hwpx(&out).expect("reparse hwpx-02");
 
     // 섹션·문단 개수 보존
-    assert_eq!(doc1.sections.len(), doc2.sections.len(),
-        "hwpx-02 섹션 개수 불일치: {} vs {}", doc1.sections.len(), doc2.sections.len());
+    assert_eq!(
+        doc1.sections.len(),
+        doc2.sections.len(),
+        "hwpx-02 섹션 개수 불일치: {} vs {}",
+        doc1.sections.len(),
+        doc2.sections.len()
+    );
 
     // 첫 섹션의 문단별 line_segs 길이 일치 확인
     let s1 = &doc1.sections[0];
     let s2 = &doc2.sections[0];
-    assert_eq!(s1.paragraphs.len(), s2.paragraphs.len(),
-        "hwpx-02 문단 개수 불일치");
+    assert_eq!(
+        s1.paragraphs.len(),
+        s2.paragraphs.len(),
+        "hwpx-02 문단 개수 불일치"
+    );
 
     for (pi, (p1, p2)) in s1.paragraphs.iter().zip(s2.paragraphs.iter()).enumerate() {
-        assert_eq!(p1.line_segs.len(), p2.line_segs.len(),
+        assert_eq!(
+            p1.line_segs.len(),
+            p2.line_segs.len(),
             "hwpx-02 paragraph {} line_segs 길이 불일치: {} vs {}",
-            pi, p1.line_segs.len(), p2.line_segs.len());
+            pi,
+            p1.line_segs.len(),
+            p2.line_segs.len()
+        );
     }
 }
 
@@ -206,8 +420,8 @@ fn task177_hwpx_02_regression() {
 // 이 테스트는 cargo test --nocapture 로 돌려 수치를 관찰한다.
 
 fn count_validation_warnings(bytes: &[u8]) -> (usize, usize, usize, usize) {
-    use rhwp::document_core::DocumentCore;
     use rhwp::document_core::validation::WarningKind;
+    use rhwp::document_core::DocumentCore;
     let doc = DocumentCore::from_bytes(bytes).expect("load doc");
     let report = doc.validation_report();
     let mut empty = 0;
@@ -246,9 +460,15 @@ fn task177_hwpx_02_lineseg_histogram() {
                 paragraphs_with_segs += 1;
                 total_segs += p.line_segs.len();
                 for s in &p.line_segs {
-                    if s.line_height == 0 { zero_lh += 1; }
-                    if s.vertical_pos == 0 { zero_vpos += 1; }
-                    if s.segment_width == 0 { zero_sw += 1; }
+                    if s.line_height == 0 {
+                        zero_lh += 1;
+                    }
+                    if s.vertical_pos == 0 {
+                        zero_vpos += 1;
+                    }
+                    if s.segment_width == 0 {
+                        zero_sw += 1;
+                    }
                 }
             }
         }
@@ -267,28 +487,329 @@ fn task177_hwpx_02_lineseg_histogram() {
 #[test]
 fn task177_false_positive_measurement() {
     let samples = [
-        ("blank_hwpx", include_bytes!("../samples/hwpx/blank_hwpx.hwpx") as &[u8]),
-        ("ref_empty", include_bytes!("../samples/hwpx/ref/ref_empty.hwpx")),
-        ("ref_text", include_bytes!("../samples/hwpx/ref/ref_text.hwpx")),
-        ("ref_table", include_bytes!("../samples/hwpx/ref/ref_table.hwpx")),
-        ("ref_mixed", include_bytes!("../samples/hwpx/ref/ref_mixed.hwpx")),
+        (
+            "blank_hwpx",
+            include_bytes!("../samples/hwpx/blank_hwpx.hwpx") as &[u8],
+        ),
+        (
+            "ref_empty",
+            include_bytes!("../samples/hwpx/ref/ref_empty.hwpx"),
+        ),
+        (
+            "ref_text",
+            include_bytes!("../samples/hwpx/ref/ref_text.hwpx"),
+        ),
+        (
+            "ref_table",
+            include_bytes!("../samples/hwpx/ref/ref_table.hwpx"),
+        ),
+        (
+            "ref_mixed",
+            include_bytes!("../samples/hwpx/ref/ref_mixed.hwpx"),
+        ),
         ("hwpx-02", include_bytes!("../samples/hwpx/hwpx-02.hwpx")),
         ("form-002", include_bytes!("../samples/hwpx/form-002.hwpx")),
-        ("2025-q1", include_bytes!("../samples/hwpx/2025년 1분기 해외직접투자 보도자료f.hwpx")),
-        ("2025-q2", include_bytes!("../samples/hwpx/2025년 2분기 해외직접투자 (최종).hwpx")),
+        (
+            "2025-q1",
+            include_bytes!("../samples/hwpx/2025년 1분기 해외직접투자 보도자료f.hwpx"),
+        ),
+        (
+            "2025-q2",
+            include_bytes!("../samples/hwpx/2025년 2분기 해외직접투자 (최종).hwpx"),
+        ),
     ];
 
     eprintln!("\n=== #177 lineseg validation 경고 측정 ===");
-    eprintln!("{:<15} {:>8} {:>10} {:>11} {:>13}",
-        "sample", "total", "empty", "uncomputed", "textRunRefl");
+    eprintln!(
+        "{:<15} {:>8} {:>10} {:>11} {:>13}",
+        "sample", "total", "empty", "uncomputed", "textRunRefl"
+    );
     eprintln!("{}", "-".repeat(65));
     for (name, bytes) in samples {
         let (total, empty, uncomp, textrun) = count_validation_warnings(bytes);
-        eprintln!("{:<15} {:>8} {:>10} {:>11} {:>13}",
-            name, total, empty, uncomp, textrun);
+        eprintln!(
+            "{:<15} {:>8} {:>10} {:>11} {:>13}",
+            name, total, empty, uncomp, textrun
+        );
     }
     eprintln!();
 
     // assertion 없음 — 측정 결과는 기술문서에 기록
 }
 
+#[test]
+fn para_ids_unique_across_body_and_table() {
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+    use std::collections::HashSet;
+    use std::io::Read;
+
+    let bytes = include_bytes!("../samples/hwpx/basic-table-01.hwpx");
+    let doc = parse_hwpx(bytes).expect("parse");
+    let zip_bytes = serialize_hwpx(&doc).expect("serialize");
+
+    let cursor = std::io::Cursor::new(zip_bytes);
+    let mut zip = zip::ZipArchive::new(cursor).expect("zip open");
+    let mut section_xml = String::new();
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).expect("zip entry");
+        let name = entry.name().to_string();
+        if name.contains("section") && name.ends_with(".xml") {
+            entry
+                .read_to_string(&mut section_xml)
+                .expect("read section xml");
+            break;
+        }
+    }
+    assert!(
+        !section_xml.is_empty(),
+        "section XML not found in serialized zip"
+    );
+
+    let ids: Vec<&str> = section_xml
+        .split(r#"<hp:p id=""#)
+        .skip(1)
+        .map(|s| s.split('"').next().unwrap_or(""))
+        .collect();
+
+    assert!(!ids.is_empty(), "직렬화 결과에 <hp:p> 요소가 없음");
+
+    let unique: HashSet<&str> = ids.iter().copied().collect();
+    assert_eq!(
+        ids.len(),
+        unique.len(),
+        "본문+셀 문단 id 중복 발견: {:?}",
+        ids
+    );
+}
+
+// ---------- 쪽/번호 인라인 컨트롤 직렬화 (pageHiding/pageNum/newNum) ----------
+// 회귀: 이 컨트롤들이 HWPX 직렬화 시 누락되어(render_control_slot `_ => {}`)
+// 저장 후 재파싱하면 사라졌다(데이터 손실). 카운트뿐 아니라 속성값까지 보존돼야 함.
+
+fn page_hides(doc: &rhwp::model::document::Document) -> Vec<(bool, bool, bool, bool, bool, bool)> {
+    use rhwp::model::control::Control;
+    let mut v = Vec::new();
+    for s in &doc.sections {
+        for p in &s.paragraphs {
+            for c in &p.controls {
+                if let Control::PageHide(ph) = c {
+                    v.push((
+                        ph.hide_header,
+                        ph.hide_footer,
+                        ph.hide_master_page,
+                        ph.hide_border,
+                        ph.hide_fill,
+                        ph.hide_page_num,
+                    ));
+                }
+            }
+        }
+    }
+    v
+}
+
+fn page_nums(doc: &rhwp::model::document::Document) -> Vec<(u8, u8)> {
+    use rhwp::model::control::Control;
+    let mut v = Vec::new();
+    for s in &doc.sections {
+        for p in &s.paragraphs {
+            for c in &p.controls {
+                if let Control::PageNumberPos(pn) = c {
+                    v.push((pn.position, pn.format));
+                }
+            }
+        }
+    }
+    v
+}
+
+fn new_nums(
+    doc: &rhwp::model::document::Document,
+) -> Vec<(u16, rhwp::model::control::AutoNumberType)> {
+    use rhwp::model::control::Control;
+    let mut v = Vec::new();
+    for s in &doc.sections {
+        for p in &s.paragraphs {
+            for c in &p.controls {
+                if let Control::NewNumber(nn) = c {
+                    v.push((nn.number, nn.number_type));
+                }
+            }
+        }
+    }
+    v
+}
+
+#[test]
+fn page_hiding_and_page_num_preserved_on_roundtrip() {
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    // 정부 보도자료: pageHiding + pageNum 다수 포함.
+    let bytes = include_bytes!("../samples/hwpx/2025년 1분기 해외직접투자 보도자료f.hwpx");
+    let d1 = parse_hwpx(bytes).expect("parse");
+    let (ph1, pn1) = (page_hides(&d1), page_nums(&d1));
+    assert!(!ph1.is_empty(), "fixture must contain pageHiding");
+    assert!(!pn1.is_empty(), "fixture must contain pageNum");
+
+    let out = serialize_hwpx(&d1).expect("serialize");
+    let d2 = parse_hwpx(&out).expect("reparse");
+    // 값까지 동일해야 함 (속성 역매핑 정확성 검증).
+    assert_eq!(page_hides(&d2), ph1, "PageHide 컨트롤/값 보존 실패");
+    assert_eq!(page_nums(&d2), pn1, "PageNumberPos 컨트롤/값 보존 실패");
+}
+
+#[test]
+fn new_num_preserved_on_roundtrip() {
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    // aift: newNum 포함.
+    let bytes = include_bytes!("../samples/hwpx/aift.hwpx");
+    let d1 = parse_hwpx(bytes).expect("parse aift");
+    let nn1 = new_nums(&d1);
+    assert!(!nn1.is_empty(), "aift must contain newNum");
+
+    let out = serialize_hwpx(&d1).expect("serialize aift");
+    let d2 = parse_hwpx(&out).expect("reparse aift");
+    assert_eq!(new_nums(&d2), nn1, "NewNumber 컨트롤/값 보존 실패");
+}
+
+// 머리말/꼬리말: 중첩 문단(subList)을 포함하는 컨트롤이 직렬화 시 통째로 누락됐다.
+// 개수 + 적용범위(applyPageType) + 내부 문단 수까지 보존돼야 함.
+type HfSig = Vec<(rhwp::model::header_footer::HeaderFooterApply, usize, String)>;
+
+fn headers_footers(doc: &rhwp::model::document::Document) -> (HfSig, HfSig) {
+    use rhwp::model::control::Control;
+    let (mut hs, mut fs): (HfSig, HfSig) = (Vec::new(), Vec::new());
+    let first_text = |paras: &[rhwp::model::paragraph::Paragraph]| {
+        paras.first().map(|p| p.text.clone()).unwrap_or_default()
+    };
+    for s in &doc.sections {
+        for p in &s.paragraphs {
+            for c in &p.controls {
+                match c {
+                    Control::Header(h) => {
+                        hs.push((h.apply_to, h.paragraphs.len(), first_text(&h.paragraphs)))
+                    }
+                    Control::Footer(f) => {
+                        fs.push((f.apply_to, f.paragraphs.len(), first_text(&f.paragraphs)))
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    (hs, fs)
+}
+
+#[test]
+fn header_footer_preserved_on_roundtrip() {
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    let bytes = include_bytes!("../samples/hwpx/143E433F503322BD33.hwpx");
+    let d1 = parse_hwpx(bytes).expect("parse");
+    let (h1, f1) = headers_footers(&d1);
+    assert!(
+        !h1.is_empty() || !f1.is_empty(),
+        "fixture must contain header/footer"
+    );
+
+    let out = serialize_hwpx(&d1).expect("serialize");
+    let d2 = parse_hwpx(&out).expect("reparse");
+    let (h2, f2) = headers_footers(&d2);
+    // applyPageType + 내부 문단 수 + 첫 문단 텍스트까지 보존.
+    assert_eq!(h2, h1, "Header 컨트롤/내용 보존 실패");
+    assert_eq!(f2, f1, "Footer 컨트롤/내용 보존 실패");
+}
+
+fn auto_nums(
+    doc: &rhwp::model::document::Document,
+) -> Vec<(u16, rhwp::model::control::AutoNumberType, u8)> {
+    use rhwp::model::control::Control;
+
+    fn collect(
+        paragraphs: &[rhwp::model::paragraph::Paragraph],
+        output: &mut Vec<(u16, rhwp::model::control::AutoNumberType, u8)>,
+    ) {
+        for paragraph in paragraphs {
+            for control in &paragraph.controls {
+                match control {
+                    Control::AutoNumber(auto_number) => output.push((
+                        auto_number.number,
+                        auto_number.number_type,
+                        auto_number.format,
+                    )),
+                    Control::Header(header) => collect(&header.paragraphs, output),
+                    Control::Footer(footer) => collect(&footer.paragraphs, output),
+                    Control::Table(table) => {
+                        for cell in &table.cells {
+                            collect(&cell.paragraphs, output);
+                        }
+                    }
+                    Control::Shape(shape) => {
+                        if let Some(drawing) = shape.drawing() {
+                            if let Some(text_box) = &drawing.text_box {
+                                collect(&text_box.paragraphs, output);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let mut v = Vec::new();
+    for section in &doc.sections {
+        collect(&section.paragraphs, &mut v);
+    }
+    v
+}
+
+#[test]
+fn total_page_auto_num_preserved_on_hwp_to_hwpx_roundtrip() {
+    use rhwp::model::control::AutoNumberType;
+    use rhwp::parser::{hwpx::parse_hwpx, parse_hwp};
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    let d1 = parse_hwp(include_bytes!("../samples/exam_eng.hwp")).expect("parse exam_eng");
+    let total_pages_before: Vec<_> = auto_nums(&d1)
+        .into_iter()
+        .filter(|(_, number_type, _)| *number_type == AutoNumberType::TotalPage)
+        .collect();
+    assert!(
+        !total_pages_before.is_empty(),
+        "exam_eng.hwp fixture must contain AutoNumber(TotalPage)"
+    );
+
+    let out = serialize_hwpx(&d1).expect("serialize exam_eng as HWPX");
+    let d2 = parse_hwpx(&out).expect("reparse serialized HWPX");
+    let total_pages_after: Vec<_> = auto_nums(&d2)
+        .into_iter()
+        .filter(|(_, number_type, _)| *number_type == AutoNumberType::TotalPage)
+        .collect();
+
+    assert_eq!(
+        total_pages_after, total_pages_before,
+        "HWPX 왕복에서 TOTAL_PAGE numType과 번호 형식이 보존돼야 한다"
+    );
+}
+
+#[test]
+fn auto_num_preserved_on_roundtrip() {
+    use rhwp::parser::hwpx::parse_hwpx;
+    use rhwp::serializer::hwpx::serialize_hwpx;
+
+    // eq-002: 본문에 autoNum 컨트롤 포함.
+    let bytes = include_bytes!("../samples/hwpx/eq-002.hwpx");
+    let d1 = parse_hwpx(bytes).expect("parse");
+    let an1 = auto_nums(&d1);
+    assert!(!an1.is_empty(), "fixture must contain autoNum");
+
+    let out = serialize_hwpx(&d1).expect("serialize");
+    let d2 = parse_hwpx(&out).expect("reparse");
+    assert_eq!(auto_nums(&d2), an1, "AutoNumber 컨트롤/값 보존 실패");
+}

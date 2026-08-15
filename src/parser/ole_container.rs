@@ -31,6 +31,10 @@ impl NativeImageKind {
 pub struct OleContainer {
     /// `\x02OlePres000` 스트림에서 추출한 EMF 바이트 (OLE Presentation Stream 헤더 스킵됨)
     pub preview_emf: Option<Vec<u8>>,
+    /// [#3363] `\x02OlePres000` 스트림에서 추출한 WMF 바이트 — EMF 부재 시 폴백.
+    /// HWP3 내장 OLE(글맵시 등)의 프레젠테이션은 표준 WMF 다 (SO-SUEOP 실측:
+    /// 40바이트 헤더 뒤 `01 00 09 00 03` 표준 WMF).
+    pub preview_wmf: Option<Vec<u8>>,
     /// `OOXMLChartContents` 원본 바이트 (OOXML 차트 XML)
     pub ooxml_chart: Option<Vec<u8>>,
     /// `Contents` 원본 바이트 (내부 OLE 데이터)
@@ -45,9 +49,10 @@ impl OleContainer {
         self.ooxml_chart.as_ref().is_some_and(|b| !b.is_empty())
     }
 
-    /// EMF 프리뷰를 포함하는지 여부
+    /// 메타파일(EMF/WMF) 프리뷰를 포함하는지 여부
     pub fn has_preview(&self) -> bool {
         self.preview_emf.as_ref().is_some_and(|b| !b.is_empty())
+            || self.preview_wmf.as_ref().is_some_and(|b| !b.is_empty())
     }
 }
 
@@ -78,6 +83,10 @@ pub fn parse_ole_container(cfb_bytes: &[u8]) -> Option<OleContainer> {
                 let mut buf = Vec::new();
                 if s.read_to_end(&mut buf).is_ok() {
                     container.preview_emf = strip_ole_presentation_header(&buf);
+                    // [#3363] EMF 부재 시 WMF 프레젠테이션 폴백 (HWP3 내장 OLE·글맵시)
+                    if container.preview_emf.is_none() {
+                        container.preview_wmf = strip_ole_presentation_header_wmf(&buf);
+                    }
                 }
             }
         } else if name == "OOXMLChartContents" {
@@ -115,7 +124,8 @@ pub fn parse_ole_container(cfb_bytes: &[u8]) -> Option<OleContainer> {
         if let Ok(entries) = std::panic::catch_unwind(|| {
             let cursor = Cursor::new(cfb_bytes);
             CompoundFile::open(cursor).ok().map(|mut comp| {
-                comp.walk().filter(|e| e.is_stream())
+                comp.walk()
+                    .filter(|e| e.is_stream())
                     .map(|e| e.path().to_string_lossy().to_string())
                     .collect::<Vec<_>>()
             })
@@ -143,6 +153,7 @@ pub fn parse_ole_container(cfb_bytes: &[u8]) -> Option<OleContainer> {
     }
 
     if container.preview_emf.is_some()
+        || container.preview_wmf.is_some()
         || container.ooxml_chart.is_some()
         || container.raw_contents.is_some()
         || container.native_image.is_some()
@@ -153,9 +164,36 @@ pub fn parse_ole_container(cfb_bytes: &[u8]) -> Option<OleContainer> {
     }
 }
 
+/// 한글 글맵시(HMapsi) 계열 OLE 컨테이너인지 빠르게 판별한다.
+///
+/// 구형/변환 HWPX의 글맵시 OLE는 일반 EMF/DIB preview 없이 `HMapsi`/`Hmapsi file`
+/// 네이티브 스트림만 가진다. 현재는 전용 parser가 없으므로 렌더러의 preview clip
+/// fallback 대상인지 판정하는 용도로 사용한다.
+pub fn is_hmapsi_ole_container(cfb_bytes: &[u8]) -> bool {
+    contains_bytes(cfb_bytes, b"HMapsi") || contains_bytes(cfb_bytes, b"Hmapsi file")
+}
+
+/// 중첩 OLE CFB 의 루트 CLSID(= OLE 서버 클래스 ID)를 읽는다. (#4097)
+///
+/// `parse_ole_container` 는 스트림 **이름**으로만 개체를 판별하므로 CLSID 를 보지 않는다.
+/// 그래서 재포장에서 CLSID 가 사라져도 rhwp 의 왕복 검증·조립 검증은 전부 통과했고
+/// **한컴에서만** 드러났다. 중첩 CFB 를 다시 쓸 때는 이 값을 읽어
+/// `serializer::mini_cfb::build_cfb_with_root_clsid` 에 넘겨야 한다.
+///
+/// 바이트 해석은 `cfb_reader::root_clsid` 한 곳에서만 한다 — 오프셋 지식을 복제하지 않는다.
+pub fn ole_root_clsid(cfb_bytes: &[u8]) -> Option<[u8; 16]> {
+    crate::parser::cfb_reader::root_clsid(cfb_bytes)
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
+}
+
 /// 바이트 슬라이스의 선두 매직으로 이미지 포맷을 판별
 pub fn detect_native_image(data: &[u8]) -> Option<(NativeImageKind, Vec<u8>)> {
-    if data.len() < 4 { return None; }
+    if data.len() < 4 {
+        return None;
+    }
     if data.starts_with(b"BM") {
         return Some((NativeImageKind::Bmp, data.to_vec()));
     }
@@ -179,20 +217,33 @@ fn extract_dib_as_bmp(data: &[u8]) -> Option<Vec<u8>> {
     let scan_limit = data.len().min(4096);
     for i in 0..scan_limit.saturating_sub(40) {
         // BITMAPINFOHEADER.biSize == 40
-        let bi_size = u32::from_le_bytes([data[i], data[i+1], data[i+2], data[i+3]]);
-        if bi_size != 40 { continue; }
+        let bi_size = u32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]);
+        if bi_size != 40 {
+            continue;
+        }
         // 유효성: width/height가 현실적인 범위
-        let w = i32::from_le_bytes([data[i+4], data[i+5], data[i+6], data[i+7]]);
-        let h = i32::from_le_bytes([data[i+8], data[i+9], data[i+10], data[i+11]]);
-        if w <= 0 || w > 100_000 || h.abs() == 0 || h.abs() > 100_000 { continue; }
-        let bit_count = u16::from_le_bytes([data[i+14], data[i+15]]);
-        if !matches!(bit_count, 1 | 4 | 8 | 16 | 24 | 32) { continue; }
-        let compression = u32::from_le_bytes([data[i+16], data[i+17], data[i+18], data[i+19]]);
+        let w = i32::from_le_bytes([data[i + 4], data[i + 5], data[i + 6], data[i + 7]]);
+        let h = i32::from_le_bytes([data[i + 8], data[i + 9], data[i + 10], data[i + 11]]);
+        if w <= 0 || w > 100_000 || h.abs() == 0 || h.abs() > 100_000 {
+            continue;
+        }
+        let bit_count = u16::from_le_bytes([data[i + 14], data[i + 15]]);
+        if !matches!(bit_count, 1 | 4 | 8 | 16 | 24 | 32) {
+            continue;
+        }
+        let compression =
+            u32::from_le_bytes([data[i + 16], data[i + 17], data[i + 18], data[i + 19]]);
         // 색상 테이블 크기 계산
-        let clr_used = u32::from_le_bytes([data[i+32], data[i+33], data[i+34], data[i+35]]);
+        let clr_used = u32::from_le_bytes([data[i + 32], data[i + 33], data[i + 34], data[i + 35]]);
         let palette_entries = if bit_count <= 8 {
-            if clr_used > 0 && clr_used <= 256 { clr_used } else { 1u32 << bit_count }
-        } else { 0 };
+            if clr_used > 0 && clr_used <= 256 {
+                clr_used
+            } else {
+                1u32 << bit_count
+            }
+        } else {
+            0
+        };
         let palette_bytes = palette_entries * 4;
         let dib_and_data = &data[i..];
         let offset_to_pixels = 14 + 40 + palette_bytes as usize;
@@ -234,6 +285,33 @@ fn strip_ole_presentation_header(data: &[u8]) -> Option<Vec<u8>> {
         // " EMF" = 0x20 0x45 0x4D 0x46
         let sig = &data[i + 40..i + 44];
         if sig == b" EMF" {
+            return Some(data[i..].to_vec());
+        }
+    }
+    None
+}
+
+/// [#3363] OLE Presentation Stream 헤더 뒤의 표준/placeable WMF 를 찾아 반환한다.
+/// EMF 스트립과 동일한 스캔 방식 — 표준 WMF 매직(mtType=1|2, mtHeaderSize=9,
+/// mtVersion 0x0100|0x0300) 또는 placeable WMF 매직(`D7 CD C6 9A`)을 탐색한다.
+fn strip_ole_presentation_header_wmf(data: &[u8]) -> Option<Vec<u8>> {
+    if data.len() < 26 {
+        return None;
+    }
+    let scan_limit = data.len().min(4096);
+    for i in 0..(scan_limit.saturating_sub(8)) {
+        // placeable WMF
+        if data[i..i + 4] == [0xD7, 0xCD, 0xC6, 0x9A] {
+            return Some(data[i..].to_vec());
+        }
+        // 표준 WMF: mtType(1=memory, 2=file) u16 + mtHeaderSize=9 u16 + mtVersion u16
+        let mt_type = u16::from_le_bytes([data[i], data[i + 1]]);
+        let header_size = u16::from_le_bytes([data[i + 2], data[i + 3]]);
+        let version = u16::from_le_bytes([data[i + 4], data[i + 5]]);
+        if (mt_type == 1 || mt_type == 2)
+            && header_size == 9
+            && (version == 0x0100 || version == 0x0300)
+        {
             return Some(data[i..].to_vec());
         }
     }

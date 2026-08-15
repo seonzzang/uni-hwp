@@ -25,6 +25,8 @@ pub enum CfbError {
     StreamNotFound(String),
     /// 압축 해제 실패
     DecompressError(String),
+    /// 스트림 또는 압축 해제 결과가 호출부 상한을 초과함
+    LimitExceeded(usize),
 }
 
 impl std::fmt::Display for CfbError {
@@ -34,6 +36,9 @@ impl std::fmt::Display for CfbError {
             CfbError::StreamError(e) => write!(f, "스트림 읽기 실패: {}", e),
             CfbError::StreamNotFound(name) => write!(f, "스트림 없음: {}", name),
             CfbError::DecompressError(e) => write!(f, "압축 해제 실패: {}", e),
+            CfbError::LimitExceeded(limit) => {
+                write!(f, "스트림이 {} 바이트 상한을 초과했습니다", limit)
+            }
         }
     }
 }
@@ -44,8 +49,8 @@ impl CfbReader {
     /// 바이트 데이터에서 CFB 컨테이너 열기
     pub fn open(data: &[u8]) -> Result<Self, CfbError> {
         let cursor = Cursor::new(data.to_vec());
-        let compound = cfb::CompoundFile::open(cursor)
-            .map_err(|e| CfbError::OpenError(e.to_string()))?;
+        let compound =
+            cfb::CompoundFile::open(cursor).map_err(|e| CfbError::OpenError(e.to_string()))?;
 
         Ok(CfbReader { compound })
     }
@@ -61,7 +66,8 @@ impl CfbReader {
             return Err(CfbError::StreamNotFound(path.to_string()));
         }
 
-        let mut stream = self.compound
+        let mut stream = self
+            .compound
             .open_stream(path)
             .map_err(|e| CfbError::StreamError(format!("{}: {}", path, e)))?;
 
@@ -141,12 +147,42 @@ impl CfbReader {
         self.read_stream_raw(&path)
     }
 
+    /// BinData 스트림을 `max_bytes` 바이트까지만 읽는다.
+    pub fn read_bin_data_limited(
+        &mut self,
+        storage_name: &str,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, CfbError> {
+        let path = format!("/BinData/{}", storage_name);
+        if !self.compound.is_stream(&path) {
+            return Err(CfbError::StreamNotFound(path));
+        }
+        let mut stream = self
+            .compound
+            .open_stream(&path)
+            .map_err(|error| CfbError::StreamError(format!("{}: {}", path, error)))?;
+        let mut data = Vec::new();
+        stream
+            .by_ref()
+            .take((max_bytes as u64).saturating_add(1))
+            .read_to_end(&mut data)
+            .map_err(|error| CfbError::StreamError(format!("{}: {}", path, error)))?;
+        if data.len() > max_bytes {
+            return Err(CfbError::LimitExceeded(max_bytes));
+        }
+        Ok(data)
+    }
+
     /// 본문 섹션 수 계산
     pub fn section_count(&self) -> u32 {
         let mut count = 0;
         loop {
-            let has_body = self.compound.is_stream(&format!("/BodyText/Section{}", count));
-            let has_view = self.compound.is_stream(&format!("/ViewText/Section{}", count));
+            let has_body = self
+                .compound
+                .is_stream(&format!("/BodyText/Section{}", count));
+            let has_view = self
+                .compound
+                .is_stream(&format!("/ViewText/Section{}", count));
             let has_root = self.compound.is_stream(&format!("/Section{}", count));
 
             if has_body || has_view || has_root {
@@ -242,6 +278,40 @@ impl CfbReader {
             Some(text)
         }
     }
+
+    /// [Task #1001] HWP3 → HWP5 변환본 식별 (휴리스틱).
+    ///
+    /// HwpSummaryInformation stream 의 text properties 안에 HWP3 시대 (1990-2003)
+    /// 의 년 (예: "1998년") 이 포함되어 있으면 변환본으로 판정. 한컴이 HWP3 →
+    /// HWP5 변환 시 원본 작성일 / 메모 등을 HwpSummary 의 string field 에 보존
+    /// 하는 패턴을 활용.
+    ///
+    /// 변환본은 ParaShape spacing/margin 값이 HWP3 원본의 2배로 저장되어 있어
+    /// 한컴 viewer 가 표시 시 1/2 보정 (HwpUnitChar 단위) 한다. rhwp 도 동일
+    /// 보정을 위해 본 식별 신호 사용.
+    ///
+    /// Misid risk: HwpSummary 의 다른 field 가 우연히 HWP3 시대 년 포함 시
+    /// false positive. 그러나 변환본이 아닌 일반 HWP5 의 ParaShape spacing 은
+    /// 대부분 0 이라 1/2 보정 영향이 미미함 (시각 회귀 안전).
+    pub fn detect_hwp3_variant(&mut self) -> bool {
+        // HwpSummaryInformation stream 시도 (다양한 경로)
+        let raw = self
+            .read_stream_raw("/\u{0005}HwpSummaryInformation")
+            .or_else(|_| self.read_stream_raw("\u{0005}HwpSummaryInformation"))
+            .or_else(|_| self.read_stream_raw("HwpSummaryInformation"))
+            .unwrap_or_default();
+        if raw.len() < 16 {
+            return false;
+        }
+        // UTF-16LE 디코딩
+        let utf16: Vec<u16> = raw
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        let s = String::from_utf16_lossy(&utf16);
+        // HWP3 시대 (1990-2003) 의 년 검출 — HWP5 도입 (2007년) 이전
+        (1990..=2003).any(|y| s.contains(&format!("{}년", y)))
+    }
 }
 
 /// Lenient CFB 리더 (FAT 검증 무시)
@@ -277,46 +347,100 @@ impl LenientCfbReader {
             return Err(CfbError::OpenError("CFB 매직 넘버 불일치".into()));
         }
 
+        // 섹터 크기 지수는 파일에서 온 값(0~65535)이라 검증 없이 shift 하면 안 된다.
+        // - power >= 64(wasm32 에서는 >= 32): `1usize << power` 가 shift overflow.
+        //   debug 는 패닉, release 는 마스킹돼 엉뚱한 sector_size 가 된다.
+        // - power 가 0·1 이면 sector_size 가 1·2 라 아래 DIFAT 순회의
+        //   `sector_size / 4 - 1` 이 언더플로한다(debug 패닉, release 는 usize::MAX 로
+        //   감싸져 곧바로 슬라이스 범위 초과 패닉).
+        // CFB 사양상 섹터 크기는 512B(9) 또는 4096B(12)이므로 그 범위를 벗어나면
+        // 해석을 포기하고 Err 를 돌려준다. 패닉은 WASM 모듈 전체를 죽여 편집 중인
+        // 다른 문서까지 잃게 하므로, 열기 실패로 처리하는 편이 언제나 낫다.
         let sector_size_power = u16::from_le_bytes([data[30], data[31]]) as usize;
+        if !(9..=12).contains(&sector_size_power) {
+            return Err(CfbError::OpenError(format!(
+                "CFB 섹터 크기 지수가 사양 범위를 벗어남: {sector_size_power}"
+            )));
+        }
         let sector_size = 1usize << sector_size_power;
         let mini_sector_size_power = u16::from_le_bytes([data[32], data[33]]) as usize;
+        if mini_sector_size_power >= usize::BITS as usize {
+            return Err(CfbError::OpenError(format!(
+                "CFB 미니 섹터 크기 지수가 사양 범위를 벗어남: {mini_sector_size_power}"
+            )));
+        }
         let _mini_sector_size = 1usize << mini_sector_size_power;
 
-        let fat_sectors_count = u32::from_le_bytes([data[44], data[45], data[46], data[47]]) as usize;
+        let fat_sectors_count =
+            u32::from_le_bytes([data[44], data[45], data[46], data[47]]) as usize;
         let first_dir_sector = u32::from_le_bytes([data[48], data[49], data[50], data[51]]);
         let mini_stream_cutoff = u32::from_le_bytes([data[56], data[57], data[58], data[59]]);
         let first_mini_fat_sector = u32::from_le_bytes([data[60], data[61], data[62], data[63]]);
-        let mini_fat_sectors_count = u32::from_le_bytes([data[64], data[65], data[66], data[67]]) as usize;
+        let mini_fat_sectors_count =
+            u32::from_le_bytes([data[64], data[65], data[66], data[67]]) as usize;
         let first_difat_sector = u32::from_le_bytes([data[68], data[69], data[70], data[71]]);
-        let difat_sectors_count = u32::from_le_bytes([data[72], data[73], data[74], data[75]]) as usize;
+        let difat_sectors_count =
+            u32::from_le_bytes([data[72], data[73], data[74], data[75]]) as usize;
 
         // DIFAT 읽기: 헤더의 109개 + 추가 DIFAT 섹터
+        //
+        // [정적분석] 유효한 CFB 파일은 각 FAT 섹터 id 를 DIFAT 에 한 번만 기재한다
+        // (섹터마다 파일의 서로 다른 영역을 담당하므로). 이 불변식을 검증 없이 신뢰하면,
+        // 조작된 파일이 같은 id 를 반복 기재해 물리 섹터 1개만으로 FAT 벡터를
+        // 반복 횟수에 비례해(최대 DIFAT 섹터 수 × 섹터당 엔트리 수) 부풀릴 수 있다
+        // (#3181 순환 미탐지와 같은 클래스 — "카운트 필드를 무검증으로 반복 사용"하는
+        // DoS 증폭). visited_fat_sids 로 중복 id 를 조용히 건너뛴다.
         let mut fat_sector_ids = Vec::new();
+        let mut visited_fat_sids = std::collections::HashSet::new();
         for i in 0..109.min(fat_sectors_count) {
             let off = 76 + i * 4;
             let sid = u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
-            if sid != Self::FREE_SECT && sid != Self::END_OF_CHAIN {
+            if sid != Self::FREE_SECT && sid != Self::END_OF_CHAIN && visited_fat_sids.insert(sid) {
                 fat_sector_ids.push(sid);
             }
         }
         // 추가 DIFAT 섹터 체인
         if difat_sectors_count > 0 && first_difat_sector != Self::END_OF_CHAIN {
             let mut dsid = first_difat_sector;
+            // difat_sectors_count 는 파일 헤더에서 그대로 읽은 값(공격자 통제 가능)이라,
+            // 실제 섹터 체인이 짧은 순환을 이뤄도 최대 u32::MAX 번 순회할 수 있다.
+            // FAT/미니FAT 체인 순회(read_chain_static)처럼 방문 집합으로 순환을 조기 차단한다.
+            let mut visited_difat = std::collections::HashSet::new();
             for _ in 0..difat_sectors_count {
+                if !visited_difat.insert(dsid) {
+                    break;
+                }
                 let off = 512 + dsid as usize * sector_size;
-                if off + sector_size > data.len() { break; }
+                if off + sector_size > data.len() {
+                    break;
+                }
                 let entries_per = sector_size / 4 - 1;
                 for i in 0..entries_per {
                     let eoff = off + i * 4;
-                    let sid = u32::from_le_bytes([data[eoff], data[eoff + 1], data[eoff + 2], data[eoff + 3]]);
-                    if sid != Self::FREE_SECT && sid != Self::END_OF_CHAIN {
+                    let sid = u32::from_le_bytes([
+                        data[eoff],
+                        data[eoff + 1],
+                        data[eoff + 2],
+                        data[eoff + 3],
+                    ]);
+                    if sid != Self::FREE_SECT
+                        && sid != Self::END_OF_CHAIN
+                        && visited_fat_sids.insert(sid)
+                    {
                         fat_sector_ids.push(sid);
                     }
                 }
                 // 다음 DIFAT 섹터
                 let next_off = off + entries_per * 4;
-                dsid = u32::from_le_bytes([data[next_off], data[next_off + 1], data[next_off + 2], data[next_off + 3]]);
-                if dsid == Self::END_OF_CHAIN || dsid == Self::FREE_SECT { break; }
+                dsid = u32::from_le_bytes([
+                    data[next_off],
+                    data[next_off + 1],
+                    data[next_off + 2],
+                    data[next_off + 3],
+                ]);
+                if dsid == Self::END_OF_CHAIN || dsid == Self::FREE_SECT {
+                    break;
+                }
             }
         }
 
@@ -324,11 +448,18 @@ impl LenientCfbReader {
         let mut fat = Vec::new();
         for &fsid in &fat_sector_ids {
             let off = 512 + fsid as usize * sector_size;
-            if off + sector_size > data.len() { continue; }
+            if off + sector_size > data.len() {
+                continue;
+            }
             let entries = sector_size / 4;
             for i in 0..entries {
                 let eoff = off + i * 4;
-                fat.push(u32::from_le_bytes([data[eoff], data[eoff + 1], data[eoff + 2], data[eoff + 3]]));
+                fat.push(u32::from_le_bytes([
+                    data[eoff],
+                    data[eoff + 1],
+                    data[eoff + 2],
+                    data[eoff + 3],
+                ]));
             }
         }
 
@@ -339,27 +470,39 @@ impl LenientCfbReader {
         let n_entries = dir_data.len() / entry_size;
         for i in 0..n_entries {
             let eoff = i * entry_size;
-            let name_len = u16::from_le_bytes([dir_data[eoff + 64], dir_data[eoff + 65]]) as usize;
+            // name_len 도 파일에서 온 값(0~65535)이다. 이름 필드는 엔트리 선두 64바이트이므로
+            // 그보다 큰 값은 손상으로 보고 잘라낸다. 잘라내지 않으면 아래 슬라이스가
+            // dir_data(= n_entries * 128 바이트) 범위를 넘어 패닉한다 — 슬라이스 경계 검사는
+            // release 에서도 켜져 있어 배포 WASM 에서도 그대로 터진다.
+            let name_len =
+                (u16::from_le_bytes([dir_data[eoff + 64], dir_data[eoff + 65]]) as usize).min(64);
             let name = if name_len > 2 {
                 let name_bytes = &dir_data[eoff..eoff + name_len - 2]; // UTF-16LE, exclude null
                 String::from_utf16_lossy(
-                    &name_bytes.chunks(2)
+                    &name_bytes
+                        .chunks(2)
                         .map(|c| u16::from_le_bytes([c[0], c.get(1).copied().unwrap_or(0)]))
-                        .collect::<Vec<_>>()
+                        .collect::<Vec<_>>(),
                 )
             } else {
                 String::new()
             };
             let obj_type = dir_data[eoff + 66];
             let start_sector = u32::from_le_bytes([
-                dir_data[eoff + 116], dir_data[eoff + 117],
-                dir_data[eoff + 118], dir_data[eoff + 119],
+                dir_data[eoff + 116],
+                dir_data[eoff + 117],
+                dir_data[eoff + 118],
+                dir_data[eoff + 119],
             ]);
             let size = u64::from_le_bytes([
-                dir_data[eoff + 120], dir_data[eoff + 121],
-                dir_data[eoff + 122], dir_data[eoff + 123],
-                dir_data[eoff + 124], dir_data[eoff + 125],
-                dir_data[eoff + 126], dir_data[eoff + 127],
+                dir_data[eoff + 120],
+                dir_data[eoff + 121],
+                dir_data[eoff + 122],
+                dir_data[eoff + 123],
+                dir_data[eoff + 124],
+                dir_data[eoff + 125],
+                dir_data[eoff + 126],
+                dir_data[eoff + 127],
             ]);
 
             if obj_type == 1 || obj_type == 2 || obj_type == 5 {
@@ -401,9 +544,13 @@ impl LenientCfbReader {
         let mut sid = start;
         let mut visited = std::collections::HashSet::new();
         while sid != Self::END_OF_CHAIN && sid != Self::FREE_SECT {
-            if !visited.insert(sid) { break; } // 순환 방지
+            if !visited.insert(sid) {
+                break;
+            } // 순환 방지
             let off = 512 + sid as usize * sector_size;
-            if off + sector_size > data.len() { break; }
+            if off + sector_size > data.len() {
+                break;
+            }
             result.extend_from_slice(&data[off..off + sector_size]);
             if (sid as usize) < fat.len() {
                 sid = fat[sid as usize];
@@ -420,9 +567,13 @@ impl LenientCfbReader {
         let mut sid = start;
         let mut visited = std::collections::HashSet::new();
         while sid != Self::END_OF_CHAIN && sid != Self::FREE_SECT {
-            if !visited.insert(sid) { break; }
+            if !visited.insert(sid) {
+                break;
+            }
             let off = sid as usize * mini_sector_size;
-            if off + mini_sector_size > self.mini_stream.len() { break; }
+            if off + mini_sector_size > self.mini_stream.len() {
+                break;
+            }
             result.extend_from_slice(&self.mini_stream[off..off + mini_sector_size]);
             if (sid as usize) < self.mini_fat.len() {
                 sid = self.mini_fat[sid as usize];
@@ -439,7 +590,9 @@ impl LenientCfbReader {
     fn find_entry_idx(&self, path: &str) -> Option<usize> {
         // 경로 "/" 제거 및 트리 탐색 단순화: 이름으로 검색
         let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        if parts.is_empty() { return None; }
+        if parts.is_empty() {
+            return None;
+        }
 
         // 간단한 DFS - directory entries가 Red-Black 트리이므로
         // child_id/sibling을 써야 하지만, 이름 기반 단순 매칭으로 충분
@@ -453,15 +606,21 @@ impl LenientCfbReader {
 
         // 정확한 경로 매칭이 필요하면 트리 탐색해야 하지만,
         // HWP에서는 이름이 유일하므로 단순 매칭
-        self.entries.iter().position(|(name, _, _, _)| name == &target_name)
+        self.entries
+            .iter()
+            .position(|(name, _, _, _)| name == &target_name)
     }
 
     pub fn read_stream(&self, path: &str) -> Result<Vec<u8>, CfbError> {
-        let idx = self.find_entry_idx(path)
+        let idx = self
+            .find_entry_idx(path)
             .ok_or_else(|| CfbError::StreamNotFound(path.to_string()))?;
         let (_, start, size, obj_type) = &self.entries[idx];
         if *obj_type != 2 {
-            return Err(CfbError::StreamError(format!("{}: 스트림이 아님 (type={})", path, obj_type)));
+            return Err(CfbError::StreamError(format!(
+                "{}: 스트림이 아님 (type={})",
+                path, obj_type
+            )));
         }
 
         if *size < self.mini_stream_cutoff as u64 {
@@ -486,7 +645,11 @@ impl LenientCfbReader {
         }
     }
 
-    pub fn read_body_text_section(&self, index: u32, compressed: bool) -> Result<Vec<u8>, CfbError> {
+    pub fn read_body_text_section(
+        &self,
+        index: u32,
+        compressed: bool,
+    ) -> Result<Vec<u8>, CfbError> {
         let name = format!("Section{}", index);
         let raw = self.read_stream(&name)?;
         if compressed {
@@ -544,6 +707,46 @@ impl LenientCfbReader {
     }
 }
 
+/// CFB 루트 디렉터리 엔트리의 CLSID(오프셋 +80, 16바이트)를 읽는다. (#4097)
+///
+/// OLE 개체는 이 값으로 서버를 식별한다. 재포장할 때 보존하지 않으면 한컴이 개체를 알아보지
+/// 못해 틀과 선택 핸들만 그리고 내용을 비운다(2026-08-05 실측). 짝이 되는 쓰기측은
+/// `serializer::mini_cfb::build_cfb_with_root_clsid` 다.
+///
+/// 전체 파싱을 하지 않는다 — 헤더 두 필드만 본다. `_uSectorShift`(0x1E)로 섹터 크기를,
+/// `_sectDirStart`(0x30)로 첫 디렉터리 섹터 SID 를 구한다. 헤더가 앞 512바이트를 차지하므로
+/// 섹터 SID `n` 의 파일 오프셋은 `512 + n * sector_size` 이고, 루트는 그 섹터의 0번 엔트리다.
+/// 헤더 크기는 CFB v3/v4 모두 512바이트다. 따라서 v3(512B sector)에서는
+/// `(n + 1) * sector_size` 와 우연히 같지만, v4(4096B sector)에서는 반드시 헤더 512바이트를
+/// 별도로 더해야 한다.
+///
+/// 형식이 어긋나면 `None` 을 돌려주고 패닉하지 않는다. 패닉은 WASM 모듈 전체를 죽여 편집 중인
+/// 다른 문서까지 잃게 하므로, `LenientCfbReader::open` 의 섹터 지수 검증과 같은 근거로 전 구간에
+/// 바운드 검사를 건다.
+pub fn root_clsid(cfb: &[u8]) -> Option<[u8; 16]> {
+    if cfb.len() < 512 || cfb[0..8] != *b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" {
+        return None;
+    }
+    // 섹터 크기 지수는 파일에서 온 값(0~65535)이라 검증 없이 shift 하면 안 된다.
+    // wasm32(usize=32bit)에서 `1usize << 32` 는 debug 패닉 / release 마스킹이다.
+    let sector_shift = u16::from_le_bytes([cfb[0x1E], cfb[0x1F]]) as usize;
+    if !(9..=12).contains(&sector_shift) {
+        return None;
+    }
+    let sector_size = 1usize << sector_shift;
+    let dir_start = u32::from_le_bytes(cfb[0x30..0x34].try_into().ok()?) as usize;
+    // ENDOFCHAIN(0xFFFFFFFE) 같은 특수값과 거대 SID 는 checked 연산이 걸러낸다.
+    // wasm32 에서는 usize 가 32비트라 곱셈이 실제로 넘칠 수 있어 checked_mul 이 필수다.
+    let at = 512usize
+        .checked_add(dir_start.checked_mul(sector_size)?)?
+        .checked_add(80)?;
+    let end = at.checked_add(16)?;
+    if end > cfb.len() {
+        return None;
+    }
+    cfb[at..end].try_into().ok()
+}
+
 /// zlib/deflate 압축 해제
 ///
 /// HWP는 raw deflate (wbits=-15) 사용. 실패 시 표준 zlib도 시도.
@@ -567,9 +770,252 @@ pub fn decompress_stream(data: &[u8]) -> Result<Vec<u8>, CfbError> {
     }
 }
 
+/// zlib/raw-deflate 데이터를 `max_bytes` 바이트까지만 압축 해제한다.
+pub fn decompress_stream_limited(data: &[u8], max_bytes: usize) -> Result<Vec<u8>, CfbError> {
+    fn decode_limited<R: Read>(reader: R, max_bytes: usize) -> Result<Vec<u8>, CfbError> {
+        let mut output = Vec::new();
+        reader
+            .take((max_bytes as u64).saturating_add(1))
+            .read_to_end(&mut output)
+            .map_err(|error| CfbError::DecompressError(error.to_string()))?;
+        if output.len() > max_bytes {
+            return Err(CfbError::LimitExceeded(max_bytes));
+        }
+        Ok(output)
+    }
+
+    let raw_result = decode_limited(flate2::read::DeflateDecoder::new(data), max_bytes);
+    if let Ok(output) = raw_result {
+        return Ok(output);
+    }
+    let raw_exceeded = matches!(raw_result, Err(CfbError::LimitExceeded(_)));
+
+    match decode_limited(flate2::read::ZlibDecoder::new(data), max_bytes) {
+        Ok(output) => Ok(output),
+        Err(CfbError::LimitExceeded(_)) => Err(CfbError::LimitExceeded(max_bytes)),
+        Err(_) if raw_exceeded => Err(CfbError::LimitExceeded(max_bytes)),
+        Err(error) => Err(error),
+    }
+}
+
+/// 압축 해제 결과의 **길이만** 센다. 출력을 버퍼에 쌓지 않으므로 메모리 O(1)이다.
+///
+/// [#2550] `len()`/`is_empty()` 류 질의가 크기를 재려고 전체를 materialize 하지
+/// 않도록 한다. `decompress_stream_limited` 와 같은 순서(raw deflate → zlib)와
+/// 같은 `LimitExceeded` 우선순위를 따른다. `cap` 초과 시 `LimitExceeded`.
+pub fn decompressed_len_capped(data: &[u8], cap: usize) -> Result<usize, CfbError> {
+    fn count_limited<R: Read>(reader: R, cap: usize) -> Result<usize, CfbError> {
+        let mut limited = reader.take((cap as u64).saturating_add(1));
+        let copied = std::io::copy(&mut limited, &mut std::io::sink())
+            .map_err(|error| CfbError::DecompressError(error.to_string()))?;
+        if copied > cap as u64 {
+            return Err(CfbError::LimitExceeded(cap));
+        }
+        Ok(copied as usize)
+    }
+
+    let raw_result = count_limited(flate2::read::DeflateDecoder::new(data), cap);
+    if let Ok(len) = raw_result {
+        return Ok(len);
+    }
+    let raw_exceeded = matches!(raw_result, Err(CfbError::LimitExceeded(_)));
+
+    match count_limited(flate2::read::ZlibDecoder::new(data), cap) {
+        Ok(len) => Ok(len),
+        Err(CfbError::LimitExceeded(_)) => Err(CfbError::LimitExceeded(cap)),
+        Err(_) if raw_exceeded => Err(CfbError::LimitExceeded(cap)),
+        Err(error) => Err(error),
+    }
+}
+
+/// 압축 해제 결과의 **선두 `n` 바이트까지만** 얻는다. 이후가 더 있어도 오류가 아니다.
+///
+/// [#2550] OLE size prefix 판정(12바이트)이나 빈 항목 판정(1바이트)처럼 아주 짧은
+/// 프리픽스만 필요할 때, 전체 해제나 `LimitExceeded` 없이 안전하게 읽는 경로다.
+pub fn decompress_stream_prefix(data: &[u8], n: usize) -> Result<Vec<u8>, CfbError> {
+    fn prefix<R: Read>(reader: R, n: usize) -> Result<Vec<u8>, CfbError> {
+        let mut output = Vec::new();
+        reader
+            .take(n as u64)
+            .read_to_end(&mut output)
+            .map_err(|error| CfbError::DecompressError(error.to_string()))?;
+        Ok(output)
+    }
+
+    if let Ok(output) = prefix(flate2::read::DeflateDecoder::new(data), n) {
+        return Ok(output);
+    }
+    prefix(flate2::read::ZlibDecoder::new(data), n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── LenientCfbReader 헤더 필드 검증 ──────────────────────────────────
+    //
+    // LenientCfbReader 는 엄격 파서가 실패한 뒤에만 쓰인다(parser/mod.rs). 즉 입력 모집단이
+    // "이미 손상이 확인된 파일"이라, 헤더 필드에 쓰레기 값이 들어있을 확률이 가장 높은
+    // 자리다. 그런데 파일에서 온 값을 검증 없이 shift/슬라이스에 쓰고 있었다.
+    // WASM 에서 패닉은 모듈 전체를 트랩시켜 편집 중이던 다른 문서까지 잃게 하므로,
+    // 해석 불가한 헤더는 패닉이 아니라 Err 로 돌려줘야 한다.
+
+    /// 최소 CFB 헤더(512B). 섹터 크기 512B, DIFAT/디렉터리 없음.
+    fn minimal_header() -> Vec<u8> {
+        let mut d = vec![0u8; 512];
+        d[0..8].copy_from_slice(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+        d[30..32].copy_from_slice(&9u16.to_le_bytes()); // sector size = 1 << 9
+        d[32..34].copy_from_slice(&6u16.to_le_bytes()); // mini sector size = 1 << 6
+        d[68..72].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes()); // first DIFAT = EOC
+        d
+    }
+
+    #[test]
+    fn root_clsid_reads_v4_directory_after_fixed_header() {
+        // CFB v4도 헤더는 512B이며 첫 섹터는 그 직후에 시작한다. SID=1인 디렉터리는
+        // 512 + 1 * 4096에 있으므로 `(SID + 1) * 4096`로 계산하면 다른 위치를 읽는다.
+        const CLSID: [u8; 16] = [
+            0x37, 0xa1, 0x3d, 0x4c, 0x90, 0xdc, 0xb9, 0x47, 0x9b, 0xed, 0x59, 0xda, 0xe3, 0x52,
+            0xa2, 0x80,
+        ];
+        const SECTOR_SIZE: usize = 4096;
+        const DIRECTORY_SID: usize = 1;
+
+        let mut d = minimal_header();
+        d[30..32].copy_from_slice(&12u16.to_le_bytes());
+        d[48..52].copy_from_slice(&(DIRECTORY_SID as u32).to_le_bytes());
+        d.resize(512 + (DIRECTORY_SID + 1) * SECTOR_SIZE, 0);
+        let directory = 512 + DIRECTORY_SID * SECTOR_SIZE;
+        d[directory + 80..directory + 96].copy_from_slice(&CLSID);
+
+        assert_eq!(root_clsid(&d), Some(CLSID));
+    }
+
+    #[test]
+    fn lenient_open_rejects_out_of_range_sector_size_power() {
+        // power >= 64 는 `1usize << power` 가 shift overflow(debug 패닉 / release 마스킹).
+        let mut d = minimal_header();
+        d[30..32].copy_from_slice(&64u16.to_le_bytes());
+        assert!(
+            LenientCfbReader::open(&d).is_err(),
+            "shift overflow 대신 Err 이어야 함"
+        );
+
+        // power 0·1 은 sector_size 가 1·2 라 DIFAT 순회의 `sector_size / 4 - 1` 이 언더플로.
+        for bad in [0u16, 1u16] {
+            let mut d = minimal_header();
+            d[30..32].copy_from_slice(&bad.to_le_bytes());
+            d[68..72].copy_from_slice(&0u32.to_le_bytes()); // DIFAT 체인 진입
+            d[72..76].copy_from_slice(&1u32.to_le_bytes());
+            assert!(
+                LenientCfbReader::open(&d).is_err(),
+                "sector_size_power={bad} 에서 언더플로 대신 Err 이어야 함"
+            );
+        }
+    }
+
+    #[test]
+    fn lenient_open_rejects_out_of_range_mini_sector_size_power() {
+        let mut d = minimal_header();
+        d[32..34].copy_from_slice(&64u16.to_le_bytes());
+        assert!(
+            LenientCfbReader::open(&d).is_err(),
+            "shift overflow 대신 Err 이어야 함"
+        );
+    }
+
+    #[test]
+    fn lenient_open_survives_oversized_directory_entry_name_len() {
+        // 디렉터리 섹터까지 도달하는 최소 컨테이너.
+        // 레이아웃: [0]=헤더 512B, [512]=FAT 섹터, [1024]=디렉터리 섹터
+        let mut d = minimal_header();
+        d[44..48].copy_from_slice(&1u32.to_le_bytes()); // FAT 섹터 1개
+        d[48..52].copy_from_slice(&1u32.to_le_bytes()); // 디렉터리 시작 = 섹터 1
+        d[76..80].copy_from_slice(&0u32.to_le_bytes()); // DIFAT[0] = FAT 은 섹터 0
+        d.resize(512 * 3, 0);
+
+        // FAT(섹터 0): 엔트리 1 = END_OF_CHAIN → 디렉터리 체인은 한 섹터로 끝난다.
+        d[512 + 4..512 + 8].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes());
+
+        // 디렉터리(섹터 1)의 첫 엔트리 name_len 을 최대값으로 손상시킨다.
+        // 잘라내지 않으면 dir_data(512B) 범위를 한참 넘겨 슬라이스해 패닉한다.
+        d[1024 + 64..1024 + 66].copy_from_slice(&0xFFFFu16.to_le_bytes());
+
+        let r = LenientCfbReader::open(&d);
+        assert!(r.is_ok(), "손상된 name_len 에서 패닉 없이 열려야 함");
+    }
+
+    #[test]
+    fn lenient_open_terminates_on_cyclic_difat_chain() {
+        // DIFAT 확장 체인은 header 의 difat_sectors_count(공격자 통제 가능한 4바이트) 만큼
+        // 순회하되, FAT 체인 순회(read_chain_static)와 달리 방문 집합이 없다. 두 DIFAT
+        // 섹터가 서로를 가리키는 순환을 만들고 difat_sectors_count 를 u32::MAX 로 두면,
+        // 실제 체인 길이(2)와 무관하게 최대 40억 회 넘게 순회해 사실상 멈추지 않는다 —
+        // 단일 스레드 WASM 에서는 탭 전체가 응답 없음 상태가 된다.
+        let mut d = minimal_header();
+        d[44..48].copy_from_slice(&0u32.to_le_bytes()); // fat_sectors_count = 0
+        d[68..72].copy_from_slice(&0u32.to_le_bytes()); // first_difat_sector = 섹터 0
+        d[72..76].copy_from_slice(&u32::MAX.to_le_bytes()); // difat_sectors_count: 공격자 제어
+
+        // 헤더(512B) 뒤에 DIFAT 섹터 2개(섹터 0, 섹터 1)를 배치.
+        d.resize(512 + 512 * 2, 0);
+        let entries_per = 512 / 4 - 1; // 127
+                                       // 모든 FAT-포인터 엔트리는 FREE_SECT 로 채워 fat_sector_ids 가 자라지 않게 한다
+                                       // (순환 자체와 무관한 메모리 팽창을 피하기 위함).
+        for sector_idx in 0..2usize {
+            let base = 512 + sector_idx * 512;
+            for i in 0..entries_per {
+                let eoff = base + i * 4;
+                d[eoff..eoff + 4].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+            }
+        }
+        // 섹터 0 의 "다음 DIFAT" 포인터 = 섹터 1
+        let next0 = 512 + entries_per * 4;
+        d[next0..next0 + 4].copy_from_slice(&1u32.to_le_bytes());
+        // 섹터 1 의 "다음 DIFAT" 포인터 = 섹터 0 (순환!)
+        let next1 = 512 + 512 + entries_per * 4;
+        d[next1..next1 + 4].copy_from_slice(&0u32.to_le_bytes());
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = LenientCfbReader::open(&d);
+            let _ = tx.send(());
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_secs(3)).is_ok(),
+            "순환 DIFAT 체인에서 방문 집합 없이 difat_sectors_count 만큼 순회해 반환하지 않음"
+        );
+    }
+
+    #[test]
+    fn lenient_open_deduplicates_fat_sector_id_from_difat() {
+        // Header DIFAT과 추가 DIFAT가 같은 FAT sector 0을 가리키는 손상 CFB.
+        // 물리 FAT은 한 섹터이므로 결과 fat도 512 / 4 엔트리여야 한다.
+        let mut d = minimal_header();
+        d[44..48].copy_from_slice(&1u32.to_le_bytes()); // FAT sector 수
+        d[48..52].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes()); // directory = EOC
+        d[68..72].copy_from_slice(&1u32.to_le_bytes()); // 추가 DIFAT = sector 1
+        d[72..76].copy_from_slice(&1u32.to_le_bytes());
+        d[76..80].copy_from_slice(&0u32.to_le_bytes()); // header FAT = sector 0
+        d.resize(512 + 512 * 2, 0);
+
+        let difat_off = 512 + 512;
+        let entries_per = 512 / 4 - 1;
+        for i in 0..entries_per {
+            let off = difat_off + i * 4;
+            d[off..off + 4].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        }
+        d[difat_off..difat_off + 4].copy_from_slice(&0u32.to_le_bytes()); // duplicate FAT
+        let next_difat = difat_off + entries_per * 4;
+        d[next_difat..next_difat + 4].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes());
+
+        let reader = LenientCfbReader::open(&d).expect("손상 CFB도 lenient reader가 열어야 함");
+        assert_eq!(
+            reader.fat.len(),
+            512 / 4,
+            "중복 FAT sector를 한 번만 읽어야 함"
+        );
+    }
 
     #[test]
     fn test_decompress_empty() {
@@ -603,6 +1049,28 @@ mod tests {
     }
 
     #[test]
+    fn test_limited_decompression_rejects_compact_oversized_output() {
+        use flate2::write::DeflateEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let original = vec![b'A'; 4096];
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+        assert!(compressed.len() < 1024);
+
+        assert!(matches!(
+            decompress_stream_limited(&compressed, 1024),
+            Err(CfbError::LimitExceeded(1024))
+        ));
+        assert_eq!(
+            decompress_stream_limited(&compressed, original.len()).unwrap(),
+            original
+        );
+    }
+
+    #[test]
     fn test_compare_cfb_streams_cli_vs_browser() {
         use std::collections::BTreeMap;
 
@@ -616,8 +1084,16 @@ mod tests {
 
         println!("\n{}", "=".repeat(60));
         println!("  CFB Stream Structure Comparison");
-        println!("  CLI-saved (works):   {} ({} bytes)", cli_path, cli_data.len());
-        println!("  Browser-saved (bad): {} ({} bytes)", browser_path, browser_data.len());
+        println!(
+            "  CLI-saved (works):   {} ({} bytes)",
+            cli_path,
+            cli_data.len()
+        );
+        println!(
+            "  Browser-saved (bad): {} ({} bytes)",
+            browser_path,
+            browser_data.len()
+        );
         println!("{}\n", "=".repeat(60));
 
         let cli_cfb = CfbReader::open(&cli_data).expect("CLI CFB 열기 실패");
@@ -658,7 +1134,8 @@ mod tests {
         println!();
 
         // Streams only in CLI
-        let cli_only: Vec<_> = cli_entries.keys()
+        let cli_only: Vec<_> = cli_entries
+            .keys()
             .filter(|k| !browser_entries.contains_key(*k))
             .collect();
         if !cli_only.is_empty() {
@@ -671,7 +1148,8 @@ mod tests {
         }
 
         // Streams only in Browser
-        let browser_only: Vec<_> = browser_entries.keys()
+        let browser_only: Vec<_> = browser_entries
+            .keys()
             .filter(|k| !cli_entries.contains_key(*k))
             .collect();
         if !browser_only.is_empty() {
@@ -691,8 +1169,10 @@ mod tests {
                 if cli_size != browser_size && *cli_is_stream {
                     let diff = *browser_size as i64 - *cli_size as i64;
                     let sign = if diff > 0 { "+" } else { "" };
-                    println!("  {:<40} CLI: {:>8}  Browser: {:>8}  ({}{})",
-                        path, cli_size, browser_size, sign, diff);
+                    println!(
+                        "  {:<40} CLI: {:>8}  Browser: {:>8}  ({}{})",
+                        path, cli_size, browser_size, sign, diff
+                    );
                     size_diffs += 1;
                 }
             }
@@ -704,10 +1184,12 @@ mod tests {
         // Specifically analyze BinData streams
         println!("\n--- BinData Stream Analysis ---");
         println!();
-        let cli_bins: Vec<_> = cli_entries.keys()
+        let cli_bins: Vec<_> = cli_entries
+            .keys()
             .filter(|k| k.starts_with("/BinData/"))
             .collect();
-        let browser_bins: Vec<_> = browser_entries.keys()
+        let browser_bins: Vec<_> = browser_entries
+            .keys()
             .filter(|k| k.starts_with("/BinData/"))
             .collect();
 
@@ -717,7 +1199,10 @@ mod tests {
             println!("  {:<45} size: {}", path, size);
         }
 
-        println!("\nBrowser-saved BinData streams ({} total):", browser_bins.len());
+        println!(
+            "\nBrowser-saved BinData streams ({} total):",
+            browser_bins.len()
+        );
         for path in &browser_bins {
             let (size, _) = browser_entries[*path];
             println!("  {:<45} size: {}", path, size);
@@ -729,34 +1214,44 @@ mod tests {
             if let Some(name) = path.strip_prefix("/BinData/") {
                 if name.starts_with("BIN") {
                     // Extract the numeric part
-                    let num_part: String = name.chars()
+                    let num_part: String = name
+                        .chars()
                         .skip(3)
                         .take_while(|c| c.is_ascii_digit())
                         .collect();
-                    let ext_part: String = name.chars()
-                        .skip(3 + num_part.len())
-                        .collect();
-                    let source = if cli_entries.contains_key(*path) && browser_entries.contains_key(*path) {
-                        "BOTH"
-                    } else if cli_entries.contains_key(*path) {
-                        "CLI-ONLY"
-                    } else {
-                        "BROWSER-ONLY"
-                    };
-                    println!("  {} => prefix=BIN, num='{}' (digits={}), ext='{}' [{}]",
-                        name, num_part, num_part.len(), ext_part, source);
+                    let ext_part: String = name.chars().skip(3 + num_part.len()).collect();
+                    let source =
+                        if cli_entries.contains_key(*path) && browser_entries.contains_key(*path) {
+                            "BOTH"
+                        } else if cli_entries.contains_key(*path) {
+                            "CLI-ONLY"
+                        } else {
+                            "BROWSER-ONLY"
+                        };
+                    println!(
+                        "  {} => prefix=BIN, num='{}' (digits={}), ext='{}' [{}]",
+                        name,
+                        num_part,
+                        num_part.len(),
+                        ext_part,
+                        source
+                    );
                 }
             }
         }
 
         // Summary
         println!("\n--- SUMMARY ---");
-        println!("CLI-saved:     {} total entries ({} streams)",
+        println!(
+            "CLI-saved:     {} total entries ({} streams)",
             cli_entries.len(),
-            cli_entries.values().filter(|(_, is)| *is).count());
-        println!("Browser-saved: {} total entries ({} streams)",
+            cli_entries.values().filter(|(_, is)| *is).count()
+        );
+        println!(
+            "Browser-saved: {} total entries ({} streams)",
             browser_entries.len(),
-            browser_entries.values().filter(|(_, is)| *is).count());
+            browser_entries.values().filter(|(_, is)| *is).count()
+        );
         println!("Only in CLI:     {}", cli_only.len());
         println!("Only in Browser: {}", browser_only.len());
         println!("Size differences: {}", size_diffs);
@@ -767,15 +1262,23 @@ mod tests {
             let mut records = Vec::new();
             let mut pos = 0;
             while pos + 4 <= data.len() {
-                let header = u32::from_le_bytes([data[pos], data[pos+1], data[pos+2], data[pos+3]]);
+                let header =
+                    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
                 let tag_id = header & 0x3FF;
                 let level = (header >> 10) & 0x3FF;
                 let size_field = (header >> 20) & 0xFFF;
                 let mut size = size_field as u32;
                 let mut data_offset = pos + 4;
                 if size_field == 0xFFF {
-                    if pos + 8 > data.len() { break; }
-                    size = u32::from_le_bytes([data[pos+4], data[pos+5], data[pos+6], data[pos+7]]);
+                    if pos + 8 > data.len() {
+                        break;
+                    }
+                    size = u32::from_le_bytes([
+                        data[pos + 4],
+                        data[pos + 5],
+                        data[pos + 6],
+                        data[pos + 7],
+                    ]);
                     data_offset = pos + 8;
                 }
                 records.push((tag_id, level, size, pos));
@@ -825,8 +1328,14 @@ mod tests {
         let cli_section = cli_cfb3.read_body_text_section(0, true, false).unwrap();
         let browser_section = browser_cfb3.read_body_text_section(0, true, false).unwrap();
 
-        println!("CLI Section0 decompressed size:     {} bytes", cli_section.len());
-        println!("Browser Section0 decompressed size: {} bytes", browser_section.len());
+        println!(
+            "CLI Section0 decompressed size:     {} bytes",
+            cli_section.len()
+        );
+        println!(
+            "Browser Section0 decompressed size: {} bytes",
+            browser_section.len()
+        );
 
         let cli_records = parse_records(&cli_section);
         let browser_records = parse_records(&browser_section);
@@ -836,21 +1345,33 @@ mod tests {
 
         // Print all records side by side (only show differences and nearby context)
         let max_records = std::cmp::max(cli_records.len(), browser_records.len());
-        println!("\n{:<5} {:<30} {:>4} {:>6}  |  {:<30} {:>4} {:>6}  | Match",
-            "#", "CLI Tag", "Lvl", "Size", "Browser Tag", "Lvl", "Size");
+        println!(
+            "\n{:<5} {:<30} {:>4} {:>6}  |  {:<30} {:>4} {:>6}  | Match",
+            "#", "CLI Tag", "Lvl", "Size", "Browser Tag", "Lvl", "Size"
+        );
         println!("{:-<120}", "");
 
         for i in 0..max_records {
             let cli_str = if i < cli_records.len() {
                 let (tag, lvl, sz, _) = cli_records[i];
-                format!("{:<30} {:>4} {:>6}", format!("{} ({})", tag_name(tag), tag), lvl, sz)
+                format!(
+                    "{:<30} {:>4} {:>6}",
+                    format!("{} ({})", tag_name(tag), tag),
+                    lvl,
+                    sz
+                )
             } else {
                 format!("{:<30} {:>4} {:>6}", "---", "", "")
             };
 
             let browser_str = if i < browser_records.len() {
                 let (tag, lvl, sz, _) = browser_records[i];
-                format!("{:<30} {:>4} {:>6}", format!("{} ({})", tag_name(tag), tag), lvl, sz)
+                format!(
+                    "{:<30} {:>4} {:>6}",
+                    format!("{} ({})", tag_name(tag), tag),
+                    lvl,
+                    sz
+                )
             } else {
                 format!("{:<30} {:>4} {:>6}", "---", "", "")
             };
@@ -862,8 +1383,13 @@ mod tests {
                     let cli_data_start = if cs == 0xFFF { co + 8 } else { co + 4 };
                     let browser_data_start = if bs == 0xFFF { bo + 8 } else { bo + 4 };
                     let cli_slice = &cli_section[cli_data_start..cli_data_start + cs as usize];
-                    let browser_slice = &browser_section[browser_data_start..browser_data_start + bs as usize];
-                    if cli_slice == browser_slice { "OK" } else { "DATA DIFF" }
+                    let browser_slice =
+                        &browser_section[browser_data_start..browser_data_start + bs as usize];
+                    if cli_slice == browser_slice {
+                        "OK"
+                    } else {
+                        "DATA DIFF"
+                    }
                 } else if ct == bt && cl == bl {
                     "SIZE DIFF"
                 } else {
@@ -882,20 +1408,32 @@ mod tests {
         // Hex dump of key differing records
         println!("\n--- Hex Dump of Key Differing Records ---");
         for idx in [19usize, 20, 21, 32, 33, 34, 225, 226, 227] {
-            if idx >= cli_records.len() && idx >= browser_records.len() { continue; }
+            if idx >= cli_records.len() && idx >= browser_records.len() {
+                continue;
+            }
             println!("\n=== Record #{} ===", idx);
             if idx < cli_records.len() {
                 let (tag, lvl, sz, off) = cli_records[idx];
                 let data_start = if sz >= 0xFFF { off + 8 } else { off + 4 };
                 let data_end = data_start + sz as usize;
-                println!("CLI: tag={} ({}) level={} size={} offset={:#x}",
-                    tag_name(tag), tag, lvl, sz, off);
+                println!(
+                    "CLI: tag={} ({}) level={} size={} offset={:#x}",
+                    tag_name(tag),
+                    tag,
+                    lvl,
+                    sz,
+                    off
+                );
                 if data_end <= cli_section.len() {
                     let bytes = &cli_section[data_start..data_end];
                     let show_len = std::cmp::min(bytes.len(), 80);
                     print!("  hex: ");
-                    for b in &bytes[..show_len] { print!("{:02x} ", b); }
-                    if bytes.len() > show_len { print!("...({} more bytes)", bytes.len() - show_len); }
+                    for b in &bytes[..show_len] {
+                        print!("{:02x} ", b);
+                    }
+                    if bytes.len() > show_len {
+                        print!("...({} more bytes)", bytes.len() - show_len);
+                    }
                     println!();
                 }
             }
@@ -903,14 +1441,24 @@ mod tests {
                 let (tag, lvl, sz, off) = browser_records[idx];
                 let data_start = if sz >= 0xFFF { off + 8 } else { off + 4 };
                 let data_end = data_start + sz as usize;
-                println!("Browser: tag={} ({}) level={} size={} offset={:#x}",
-                    tag_name(tag), tag, lvl, sz, off);
+                println!(
+                    "Browser: tag={} ({}) level={} size={} offset={:#x}",
+                    tag_name(tag),
+                    tag,
+                    lvl,
+                    sz,
+                    off
+                );
                 if data_end <= browser_section.len() {
                     let bytes = &browser_section[data_start..data_end];
                     let show_len = std::cmp::min(bytes.len(), 80);
                     print!("  hex: ");
-                    for b in &bytes[..show_len] { print!("{:02x} ", b); }
-                    if bytes.len() > show_len { print!("...({} more bytes)", bytes.len() - show_len); }
+                    for b in &bytes[..show_len] {
+                        print!("{:02x} ", b);
+                    }
+                    if bytes.len() > show_len {
+                        print!("...({} more bytes)", bytes.len() - show_len);
+                    }
                     println!();
                 }
             }
@@ -935,21 +1483,57 @@ mod tests {
 
         // CTRL_HEADER sizes
         println!("\n--- All CTRL_HEADER (71) sizes ---");
-        let cli_ctrl: Vec<_> = cli_records.iter().enumerate()
-            .filter(|(_,(t,_,_,_))| *t == 71).collect();
-        let browser_ctrl: Vec<_> = browser_records.iter().enumerate()
-            .filter(|(_,(t,_,_,_))| *t == 71).collect();
-        println!("CLI:     {:?}", cli_ctrl.iter().map(|(i, (_,l,s,_))| format!("#{}: lvl={} sz={}", i, l, s)).collect::<Vec<_>>());
-        println!("Browser: {:?}", browser_ctrl.iter().map(|(i, (_,l,s,_))| format!("#{}: lvl={} sz={}", i, l, s)).collect::<Vec<_>>());
+        let cli_ctrl: Vec<_> = cli_records
+            .iter()
+            .enumerate()
+            .filter(|(_, (t, _, _, _))| *t == 71)
+            .collect();
+        let browser_ctrl: Vec<_> = browser_records
+            .iter()
+            .enumerate()
+            .filter(|(_, (t, _, _, _))| *t == 71)
+            .collect();
+        println!(
+            "CLI:     {:?}",
+            cli_ctrl
+                .iter()
+                .map(|(i, (_, l, s, _))| format!("#{}: lvl={} sz={}", i, l, s))
+                .collect::<Vec<_>>()
+        );
+        println!(
+            "Browser: {:?}",
+            browser_ctrl
+                .iter()
+                .map(|(i, (_, l, s, _))| format!("#{}: lvl={} sz={}", i, l, s))
+                .collect::<Vec<_>>()
+        );
 
         // SHAPE_COMPONENT sizes
         println!("\n--- All SHAPE_COMPONENT (76) sizes ---");
-        let cli_shape: Vec<_> = cli_records.iter().enumerate()
-            .filter(|(_,(t,_,_,_))| *t == 76).collect();
-        let browser_shape: Vec<_> = browser_records.iter().enumerate()
-            .filter(|(_,(t,_,_,_))| *t == 76).collect();
-        println!("CLI:     {:?}", cli_shape.iter().map(|(i, (_,l,s,_))| format!("#{}: lvl={} sz={}", i, l, s)).collect::<Vec<_>>());
-        println!("Browser: {:?}", browser_shape.iter().map(|(i, (_,l,s,_))| format!("#{}: lvl={} sz={}", i, l, s)).collect::<Vec<_>>());
+        let cli_shape: Vec<_> = cli_records
+            .iter()
+            .enumerate()
+            .filter(|(_, (t, _, _, _))| *t == 76)
+            .collect();
+        let browser_shape: Vec<_> = browser_records
+            .iter()
+            .enumerate()
+            .filter(|(_, (t, _, _, _))| *t == 76)
+            .collect();
+        println!(
+            "CLI:     {:?}",
+            cli_shape
+                .iter()
+                .map(|(i, (_, l, s, _))| format!("#{}: lvl={} sz={}", i, l, s))
+                .collect::<Vec<_>>()
+        );
+        println!(
+            "Browser: {:?}",
+            browser_shape
+                .iter()
+                .map(|(i, (_, l, s, _))| format!("#{}: lvl={} sz={}", i, l, s))
+                .collect::<Vec<_>>()
+        );
 
         // Compare FileHeader bytes
         println!("\n--- FileHeader Comparison ---");
@@ -972,9 +1556,12 @@ mod tests {
                 let cli_byte = cli_header.get(i).copied();
                 let browser_byte = browser_header.get(i).copied();
                 if cli_byte != browser_byte {
-                    println!("  offset {:#06x}: CLI={:?} Browser={:?}",
-                        i, cli_byte.map(|b| format!("{:#04x}", b)),
-                        browser_byte.map(|b| format!("{:#04x}", b)));
+                    println!(
+                        "  offset {:#06x}: CLI={:?} Browser={:?}",
+                        i,
+                        cli_byte.map(|b| format!("{:#04x}", b)),
+                        browser_byte.map(|b| format!("{:#04x}", b))
+                    );
                     diff_count += 1;
                     if diff_count > 20 {
                         println!("  ... (truncated, more differences exist)");
@@ -984,5 +1571,4 @@ mod tests {
             }
         }
     }
-
 }

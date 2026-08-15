@@ -1,5 +1,9 @@
 //! 계산식 토크나이저: 문자열 → 토큰 스트림
 
+/// 와일드카드 행을 나타내는 내부 센티널 값. 실제 행 번호(1부터 시작)와
+/// 절대 충돌하지 않도록 0이 아닌 u32::MAX를 사용한다.
+pub const WILDCARD_ROW: u32 = u32::MAX;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     /// 숫자 리터럴
@@ -70,7 +74,9 @@ pub fn tokenize(input: &str) -> Vec<Token> {
         // 알파벳 또는 '?': 셀 참조, 함수, 방향 지정자
         if ch.is_ascii_alphabetic() || ch == '?' {
             let start = i;
-            while i < len && (chars[i].is_ascii_alphanumeric() || chars[i] == '?' || chars[i] == '_') {
+            while i < len
+                && (chars[i].is_ascii_alphanumeric() || chars[i] == '?' || chars[i] == '_')
+            {
                 i += 1;
             }
             let word: String = chars[start..i].iter().collect();
@@ -78,10 +84,22 @@ pub fn tokenize(input: &str) -> Vec<Token> {
 
             // 방향 지정자
             match upper.as_str() {
-                "LEFT" => { tokens.push(Token::Direction(DirectionKind::Left)); continue; }
-                "RIGHT" => { tokens.push(Token::Direction(DirectionKind::Right)); continue; }
-                "ABOVE" => { tokens.push(Token::Direction(DirectionKind::Above)); continue; }
-                "BELOW" => { tokens.push(Token::Direction(DirectionKind::Below)); continue; }
+                "LEFT" => {
+                    tokens.push(Token::Direction(DirectionKind::Left));
+                    continue;
+                }
+                "RIGHT" => {
+                    tokens.push(Token::Direction(DirectionKind::Right));
+                    continue;
+                }
+                "ABOVE" => {
+                    tokens.push(Token::Direction(DirectionKind::Above));
+                    continue;
+                }
+                "BELOW" => {
+                    tokens.push(Token::Direction(DirectionKind::Below));
+                    continue;
+                }
                 _ => {}
             }
 
@@ -93,14 +111,25 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 if (first.is_ascii_alphabetic() || first == '?')
                     && (rest.chars().all(|c| c.is_ascii_digit()) || rest == "?")
                 {
+                    // 행은 1부터 시작한다 (mydocs/plans/archives/task_370.md).
+                    // 와일드카드는 `?`만 인정하며, 내부적으로 WILDCARD_ROW로 구분한다.
+                    // 명시적으로 0행("A0")을 쓰는 것은 잘못된 입력이므로 셀 참조로
+                    // 인식하지 않고 아래 함수 이름 처리 경로로 넘긴다 (0이 와일드카드와
+                    // 충돌하여 현재 행으로 조용히 대체되는 것을 방지).
                     let row = if rest == "?" {
-                        0 // 와일드카드 행 (0으로 표시)
+                        Some(WILDCARD_ROW)
                     } else {
-                        rest.parse::<u32>().unwrap_or(0)
+                        match rest.parse::<u32>() {
+                            Ok(0) => None,
+                            Ok(n) => Some(n),
+                            Err(_) => None,
+                        }
                     };
-                    let col_char = if first == '?' { '?' } else { first };
-                    tokens.push(Token::CellRef(col_char, row));
-                    continue;
+                    if let Some(row) = row {
+                        let col_char = if first == '?' { '?' } else { first };
+                        tokens.push(Token::CellRef(col_char, row));
+                        continue;
+                    }
                 }
             }
 
@@ -143,35 +172,40 @@ mod tests {
     #[test]
     fn test_cell_ref() {
         let tokens = tokenize("=A1+B3");
-        assert_eq!(tokens, vec![
-            Token::CellRef('A', 1),
-            Token::Plus,
-            Token::CellRef('B', 3),
-        ]);
+        assert_eq!(
+            tokens,
+            vec![Token::CellRef('A', 1), Token::Plus, Token::CellRef('B', 3),]
+        );
     }
 
     #[test]
     fn test_function_call() {
         let tokens = tokenize("=SUM(A1:B5)");
-        assert_eq!(tokens, vec![
-            Token::Function("SUM".into()),
-            Token::LParen,
-            Token::CellRef('A', 1),
-            Token::Colon,
-            Token::CellRef('B', 5),
-            Token::RParen,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Function("SUM".into()),
+                Token::LParen,
+                Token::CellRef('A', 1),
+                Token::Colon,
+                Token::CellRef('B', 5),
+                Token::RParen,
+            ]
+        );
     }
 
     #[test]
     fn test_direction() {
         let tokens = tokenize("=sum(left)");
-        assert_eq!(tokens, vec![
-            Token::Function("SUM".into()),
-            Token::LParen,
-            Token::Direction(DirectionKind::Left),
-            Token::RParen,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Function("SUM".into()),
+                Token::LParen,
+                Token::Direction(DirectionKind::Left),
+                Token::RParen,
+            ]
+        );
     }
 
     #[test]
@@ -185,14 +219,17 @@ mod tests {
     #[test]
     fn test_wildcard() {
         let tokens = tokenize("=SUM(?1:?3)");
-        assert_eq!(tokens, vec![
-            Token::Function("SUM".into()),
-            Token::LParen,
-            Token::CellRef('?', 1),
-            Token::Colon,
-            Token::CellRef('?', 3),
-            Token::RParen,
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Function("SUM".into()),
+                Token::LParen,
+                Token::CellRef('?', 1),
+                Token::Colon,
+                Token::CellRef('?', 3),
+                Token::RParen,
+            ]
+        );
     }
 
     #[test]

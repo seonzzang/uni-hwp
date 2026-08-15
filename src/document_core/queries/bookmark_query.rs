@@ -1,7 +1,7 @@
 //! 책갈피 조회/조작 기능
 
-use crate::document_core::DocumentCore;
 use crate::document_core::helpers::find_control_text_positions;
+use crate::document_core::DocumentCore;
 use crate::error::HwpError;
 use crate::model::control::{Bookmark, Control};
 
@@ -20,12 +20,19 @@ impl DocumentCore {
     /// 문서 내 모든 책갈피 목록을 JSON으로 반환
     pub fn get_bookmarks_native(&self) -> Result<String, HwpError> {
         let bookmarks = self.collect_bookmarks();
-        let items: Vec<String> = bookmarks.iter().map(|b| {
-            format!(
-                "{{\"name\":{},\"sec\":{},\"para\":{},\"ctrlIdx\":{},\"charPos\":{}}}",
-                json_escape(&b.name), b.sec, b.para, b.ctrl_idx, b.char_pos
-            )
-        }).collect();
+        let items: Vec<String> = bookmarks
+            .iter()
+            .map(|b| {
+                format!(
+                    "{{\"name\":{},\"sec\":{},\"para\":{},\"ctrlIdx\":{},\"charPos\":{}}}",
+                    json_escape(&b.name),
+                    b.sec,
+                    b.para,
+                    b.ctrl_idx,
+                    b.char_pos
+                )
+            })
+            .collect();
         Ok(format!("[{}]", items.join(",")))
     }
 
@@ -47,25 +54,38 @@ impl DocumentCore {
         // 중복 검사
         let existing = self.collect_bookmarks();
         if existing.iter().any(|b| b.name == name) {
-            return Ok(r#"{"ok":false,"error":"같은 이름의 책갈피가 이미 등록되어 있습니다."}"#.to_string());
+            return Ok(
+                r#"{"ok":false,"error":"같은 이름의 책갈피가 이미 등록되어 있습니다."}"#
+                    .to_string(),
+            );
         }
 
-        let section = self.document.sections.get_mut(sec)
+        let section = self
+            .document
+            .sections
+            .get_mut(sec)
             .ok_or_else(|| HwpError::RenderError("구역 범위 초과".into()))?;
-        let paragraph = section.paragraphs.get_mut(para)
+        let paragraph = section
+            .paragraphs
+            .get_mut(para)
             .ok_or_else(|| HwpError::RenderError("문단 범위 초과".into()))?;
 
         // char_offset에 해당하는 컨트롤 삽입 위치 결정
         let insert_idx = find_control_insert_index(paragraph, char_offset);
 
-        paragraph.controls.insert(insert_idx, Control::Bookmark(Bookmark {
-            name: name.to_string(),
-        }));
+        paragraph.controls.insert(
+            insert_idx,
+            Control::Bookmark(Bookmark {
+                name: name.to_string(),
+            }),
+        );
 
         // CTRL_DATA 레코드 생성 (ParameterSet: 책갈피 이름)
         let ctrl_data = build_bookmark_ctrl_data(name);
         if paragraph.ctrl_data_records.len() >= insert_idx {
-            paragraph.ctrl_data_records.insert(insert_idx, Some(ctrl_data));
+            paragraph
+                .ctrl_data_records
+                .insert(insert_idx, Some(ctrl_data));
         }
 
         // char_offsets에 컨트롤 위치 정보 추가
@@ -74,6 +94,13 @@ impl DocumentCore {
             paragraph.char_offsets.insert(insert_idx, raw_offset);
         }
 
+        // 원본 스트림 무효화 — serialize_section 은 raw_stream 이 있으면 IR 을 무시하고
+        // 원본 바이트를 그대로 반환하므로(serializer/body_text.rs), 비우지 않으면 방금
+        // 삽입한 책갈피 컨트롤이 저장 시 통째로 사라진다. recompose_section 은 화면(구성)만
+        // 갱신할 뿐 raw_stream 을 건드리지 않는다. 누름틀·양식 쪽과 동일한 불변식이다.
+        if let Some(s) = self.document.sections.get_mut(sec) {
+            s.raw_stream = None;
+        }
         self.recompose_section(sec);
 
         Ok(r#"{"ok":true}"#.to_string())
@@ -86,9 +113,14 @@ impl DocumentCore {
         para: usize,
         ctrl_idx: usize,
     ) -> Result<String, HwpError> {
-        let section = self.document.sections.get_mut(sec)
+        let section = self
+            .document
+            .sections
+            .get_mut(sec)
             .ok_or_else(|| HwpError::RenderError("구역 범위 초과".into()))?;
-        let paragraph = section.paragraphs.get_mut(para)
+        let paragraph = section
+            .paragraphs
+            .get_mut(para)
             .ok_or_else(|| HwpError::RenderError("문단 범위 초과".into()))?;
 
         if ctrl_idx >= paragraph.controls.len() {
@@ -108,6 +140,10 @@ impl DocumentCore {
             paragraph.char_offsets.remove(ctrl_idx);
         }
 
+        // 원본 스트림 무효화 — 비우지 않으면 삭제한 책갈피가 저장 시 원본 바이트로 되살아난다.
+        if let Some(s) = self.document.sections.get_mut(sec) {
+            s.raw_stream = None;
+        }
         self.recompose_section(sec);
 
         Ok(r#"{"ok":true}"#.to_string())
@@ -127,13 +163,23 @@ impl DocumentCore {
 
         // 중복 검사 (자기 자신 제외)
         let existing = self.collect_bookmarks();
-        if existing.iter().any(|b| b.name == new_name && !(b.sec == sec && b.para == para && b.ctrl_idx == ctrl_idx)) {
-            return Ok(r#"{"ok":false,"error":"같은 이름의 책갈피가 이미 등록되어 있습니다."}"#.to_string());
+        if existing.iter().any(|b| {
+            b.name == new_name && !(b.sec == sec && b.para == para && b.ctrl_idx == ctrl_idx)
+        }) {
+            return Ok(
+                r#"{"ok":false,"error":"같은 이름의 책갈피가 이미 등록되어 있습니다."}"#
+                    .to_string(),
+            );
         }
 
-        let section = self.document.sections.get_mut(sec)
+        let section = self
+            .document
+            .sections
+            .get_mut(sec)
             .ok_or_else(|| HwpError::RenderError("구역 범위 초과".into()))?;
-        let paragraph = section.paragraphs.get_mut(para)
+        let paragraph = section
+            .paragraphs
+            .get_mut(para)
             .ok_or_else(|| HwpError::RenderError("문단 범위 초과".into()))?;
 
         if ctrl_idx >= paragraph.controls.len() {
@@ -146,6 +192,13 @@ impl DocumentCore {
             if ctrl_idx < paragraph.ctrl_data_records.len() {
                 paragraph.ctrl_data_records[ctrl_idx] = Some(build_bookmark_ctrl_data(new_name));
             }
+            // 원본 스트림 무효화 — 비우지 않으면 이름 변경이 저장 시 옛 이름으로 되돌아간다.
+            // add/delete 와 달리 이 함수는 recompose_section 도 호출하지 않았다 — 무효화와
+            // 함께 추가한다(다른 뮤테이터와 동일하게 편집 후 구성/커서를 갱신).
+            if let Some(s) = self.document.sections.get_mut(sec) {
+                s.raw_stream = None;
+            }
+            self.recompose_section(sec);
             Ok(r#"{"ok":true}"#.to_string())
         } else {
             Ok(r#"{"ok":false,"error":"해당 컨트롤이 책갈피가 아닙니다."}"#.to_string())
@@ -156,9 +209,7 @@ impl DocumentCore {
     fn collect_bookmarks(&self) -> Vec<BookmarkInfo> {
         let mut result = vec![];
         for (sec_idx, section) in self.document.sections.iter().enumerate() {
-            collect_bookmarks_from_paragraphs(
-                &section.paragraphs, sec_idx, None, &mut result,
-            );
+            collect_bookmarks_from_paragraphs(&section.paragraphs, sec_idx, None, &mut result);
         }
         result
     }
@@ -197,33 +248,51 @@ fn collect_bookmarks_from_paragraphs(
                 Control::Table(t) => {
                     for cell in &t.cells {
                         collect_bookmarks_from_paragraphs(
-                            &cell.paragraphs, sec, Some(effective_para), result,
+                            &cell.paragraphs,
+                            sec,
+                            Some(effective_para),
+                            result,
                         );
                     }
                 }
                 Control::Header(h) => {
                     collect_bookmarks_from_paragraphs(
-                        &h.paragraphs, sec, Some(effective_para), result,
+                        &h.paragraphs,
+                        sec,
+                        Some(effective_para),
+                        result,
                     );
                 }
                 Control::Footer(f) => {
                     collect_bookmarks_from_paragraphs(
-                        &f.paragraphs, sec, Some(effective_para), result,
+                        &f.paragraphs,
+                        sec,
+                        Some(effective_para),
+                        result,
                     );
                 }
                 Control::Footnote(n) => {
                     collect_bookmarks_from_paragraphs(
-                        &n.paragraphs, sec, Some(effective_para), result,
+                        &n.paragraphs,
+                        sec,
+                        Some(effective_para),
+                        result,
                     );
                 }
                 Control::Endnote(n) => {
                     collect_bookmarks_from_paragraphs(
-                        &n.paragraphs, sec, Some(effective_para), result,
+                        &n.paragraphs,
+                        sec,
+                        Some(effective_para),
+                        result,
                     );
                 }
                 Control::HiddenComment(hc) => {
                     collect_bookmarks_from_paragraphs(
-                        &hc.paragraphs, sec, Some(effective_para), result,
+                        &hc.paragraphs,
+                        sec,
+                        Some(effective_para),
+                        result,
                     );
                 }
                 _ => {}
@@ -260,7 +329,11 @@ fn char_offset_to_raw(
     } else if !para.char_offsets.is_empty() {
         // 첫 위치에 삽입: 기존 첫 번째보다 작은 값
         let first = para.char_offsets[0];
-        if first >= 8 { first - 8 } else { 0 }
+        if first >= 8 {
+            first - 8
+        } else {
+            0
+        }
     } else {
         // char_offsets가 비어있으면 char_offset * 2 (UTF-16 추정)
         (char_offset * 2) as u32
@@ -274,10 +347,10 @@ fn build_bookmark_ctrl_data(name: &str) -> Vec<u8> {
     let utf16: Vec<u16> = name.encode_utf16().collect();
     let mut data = Vec::with_capacity(12 + utf16.len() * 2);
     data.extend_from_slice(&0x021Bu16.to_le_bytes()); // ps_id
-    data.extend_from_slice(&1i16.to_le_bytes());      // count = 1
-    data.extend_from_slice(&0u16.to_le_bytes());      // dummy
+    data.extend_from_slice(&1i16.to_le_bytes()); // count = 1
+    data.extend_from_slice(&0u16.to_le_bytes()); // dummy
     data.extend_from_slice(&0x4000u16.to_le_bytes()); // item_id
-    data.extend_from_slice(&1u16.to_le_bytes());      // item_type = String
+    data.extend_from_slice(&1u16.to_le_bytes()); // item_type = String
     data.extend_from_slice(&(utf16.len() as u16).to_le_bytes()); // name_len
     for &ch in &utf16 {
         data.extend_from_slice(&ch.to_le_bytes());
@@ -304,4 +377,116 @@ fn json_escape(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    //! 책갈피 추가/삭제/이름변경의 raw_stream 무효화 회귀 테스트.
+    //!
+    //! serialize_section(serializer/body_text.rs)은 raw_stream 이 Some 이면 IR 을 무시하고
+    //! 원본 바이트를 그대로 반환한다. HWP5 파서는 모든 섹션에 raw_stream 을 채우므로
+    //! (parser/mod.rs), 세 뮤테이터가 raw_stream 을 비우지 않으면 — 책갈피 추가·삭제·
+    //! 이름변경만 하고 저장하는 워크플로에서 — 편집이 저장 시 통째로 유실된다.
+    //! recompose_section 은 화면만 갱신할 뿐 raw_stream 을 건드리지 않는다.
+    //! 누름틀 set_field_value_*(field_query.rs)·양식 set_form_value_*(form_query.rs)는
+    //! 같은 불변식을 이미 지킨다.
+
+    use crate::document_core::DocumentCore;
+    use crate::model::control::{Bookmark, Control};
+    use crate::model::document::{Document, Section};
+    use crate::model::paragraph::Paragraph;
+    use crate::serializer::body_text::serialize_section;
+
+    const SENTINEL: u8 = 0xAB;
+
+    fn core_from(doc: Document) -> DocumentCore {
+        let mut core = DocumentCore::new_empty();
+        core.document = doc;
+        core.composed = vec![Vec::new()];
+        core.dirty_sections = vec![true];
+        core.dirty_paragraphs = vec![None];
+        core
+    }
+
+    /// 파싱된 문서를 흉내낸다 — 섹션이 원본 스트림 바이트를 물고 있는 상태.
+    fn doc_with_raw_stream(paragraphs: Vec<Paragraph>) -> Document {
+        let mut doc = Document::default();
+        doc.sections.push(Section {
+            paragraphs,
+            raw_stream: Some(vec![SENTINEL; 64]),
+            ..Default::default()
+        });
+        doc
+    }
+
+    fn text_para(text: &str) -> Paragraph {
+        let mut p = Paragraph {
+            text: text.to_string(),
+            char_offsets: (0..text.chars().count() as u32).collect(),
+            char_count: text.chars().count() as u32,
+            ..Default::default()
+        };
+        p.has_para_text = true;
+        p
+    }
+
+    fn para_with_bookmark(name: &str) -> Paragraph {
+        let mut p = Paragraph::default();
+        p.controls.push(Control::Bookmark(Bookmark {
+            name: name.to_string(),
+        }));
+        p
+    }
+
+    #[test]
+    fn add_bookmark_invalidates_raw_stream() {
+        let mut core = core_from(doc_with_raw_stream(vec![text_para("안녕하세요")]));
+        let r = core
+            .add_bookmark_native(0, 0, 2, "중간지점")
+            .expect("호출 성공");
+        assert!(r.contains(r#""ok":true"#), "전제: 책갈피 추가 성공 ({r})");
+
+        assert!(
+            core.document.sections[0].raw_stream.is_none(),
+            "raw_stream 이 남으면 추가한 책갈피가 저장 시 사라진다"
+        );
+        let out = serialize_section(&core.document.sections[0]);
+        assert_ne!(
+            out,
+            vec![SENTINEL; 64],
+            "직렬화가 원본 바이트를 반환하면 유실"
+        );
+    }
+
+    #[test]
+    fn delete_bookmark_invalidates_raw_stream() {
+        let mut core = core_from(doc_with_raw_stream(vec![para_with_bookmark("삭제대상")]));
+        let r = core.delete_bookmark_native(0, 0, 0).expect("호출 성공");
+        assert!(r.contains(r#""ok":true"#), "전제: 책갈피 삭제 성공 ({r})");
+
+        assert!(
+            core.document.sections[0].raw_stream.is_none(),
+            "raw_stream 이 남으면 삭제한 책갈피가 저장 시 되살아난다"
+        );
+    }
+
+    #[test]
+    fn rename_bookmark_invalidates_raw_stream() {
+        let mut core = core_from(doc_with_raw_stream(vec![para_with_bookmark("옛이름")]));
+        let r = core
+            .rename_bookmark_native(0, 0, 0, "새이름")
+            .expect("호출 성공");
+        assert!(r.contains(r#""ok":true"#), "전제: 이름 변경 성공 ({r})");
+
+        // 이름은 IR 에 반영됐고,
+        match &core.document.sections[0].paragraphs[0].controls[0] {
+            Control::Bookmark(b) => assert_eq!(b.name, "새이름"),
+            _ => panic!("책갈피여야 함"),
+        }
+        // raw_stream 은 무효화돼야 한다 — 남으면 저장 시 옛 이름으로 되돌아간다.
+        assert!(
+            core.document.sections[0].raw_stream.is_none(),
+            "raw_stream 이 남으면 이름 변경이 저장 시 옛 이름으로 되돌아간다"
+        );
+    }
 }

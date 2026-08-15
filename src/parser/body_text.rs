@@ -21,12 +21,14 @@ use super::tags;
 
 use crate::model::control::{Control, UnknownControl};
 use crate::model::document::{RawRecord, Section, SectionDef};
-use crate::model::header_footer::{HeaderFooterApply, MasterPage};
 use crate::model::footnote::FootnoteShape;
+use crate::model::header_footer::{HeaderFooterApply, MasterPage};
 use crate::model::page::{
     BindingMethod, ColumnDef, ColumnDirection, ColumnType, PageBorderFill, PageDef,
 };
-use crate::model::paragraph::{CharShapeRef, ColumnBreakType, FieldRange, LineSeg, Paragraph, RangeTag};
+use crate::model::paragraph::{
+    CharShapeRef, ColumnBreakType, FieldRange, LineSeg, Paragraph, RangeTag,
+};
 
 /// BodyText 파싱 에러
 #[derive(Debug)]
@@ -50,8 +52,7 @@ impl std::error::Error for BodyTextError {}
 ///
 /// data: 압축 해제된(배포용은 복호화+해제된) 레코드 바이트 스트림
 pub fn parse_body_text_section(data: &[u8]) -> Result<Section, BodyTextError> {
-    let records =
-        Record::read_all(data).map_err(|e| BodyTextError::RecordError(e.to_string()))?;
+    let records = Record::read_all(data).map_err(|e| BodyTextError::RecordError(e.to_string()))?;
 
     let mut section = Section::default();
     let mut idx = 0;
@@ -89,20 +90,27 @@ pub fn parse_body_text_section(data: &[u8]) -> Result<Section, BodyTextError> {
     // 전체 레코드를 재스캔하여 마지막 PARA_HEADER(level=0) 이후의 LIST_HEADER(level=1)를 추출.
     {
         let all_records = Record::read_all(data).unwrap_or_default();
-        let last_para0_idx = all_records.iter().rposition(|r|
-            r.tag_id == tags::HWPTAG_PARA_HEADER && r.level == 0
-        );
+        let last_para0_idx = all_records
+            .iter()
+            .rposition(|r| r.tag_id == tags::HWPTAG_PARA_HEADER && r.level == 0);
         if let Some(lp) = last_para0_idx {
             // 마지막 문단의 본래 자식 레코드 범위 결정 (PARA_TEXT, PARA_CHAR_SHAPE 등)
             // LIST_HEADER(level=1)가 나타나면 그 이후는 확장 바탕쪽
             let mut scan = lp + 1;
             while scan < all_records.len() {
-                if all_records[scan].tag_id == tags::HWPTAG_LIST_HEADER && all_records[scan].level == 1 {
+                if all_records[scan].tag_id == tags::HWPTAG_LIST_HEADER
+                    && all_records[scan].level == 1
+                {
                     // 확장 바탕쪽 발견
-                    let tail: Vec<RawRecord> = all_records[scan..].iter()
-                        .map(|r| RawRecord { tag_id: r.tag_id, level: r.level, data: r.data.clone() })
+                    let tail: Vec<RawRecord> = all_records[scan..]
+                        .iter()
+                        .map(|r| RawRecord {
+                            tag_id: r.tag_id,
+                            level: r.level,
+                            data: r.data.clone(),
+                        })
                         .collect();
-                    let ext_mps = parse_master_pages_from_raw(&tail);
+                    let ext_mps = parse_master_pages_from_raw(&tail, 0);
                     section.section_def.master_pages.extend(ext_mps);
                     break;
                 }
@@ -119,9 +127,7 @@ pub fn parse_body_text_section(data: &[u8]) -> Result<Section, BodyTextError> {
 /// records[0] = PARA_HEADER, records[1..] = 자식 레코드
 pub fn parse_paragraph(records: &[Record]) -> Result<Paragraph, BodyTextError> {
     if records.is_empty() || records[0].tag_id != tags::HWPTAG_PARA_HEADER {
-        return Err(BodyTextError::ParseError(
-            "PARA_HEADER 레코드 없음".into(),
-        ));
+        return Err(BodyTextError::ParseError("PARA_HEADER 레코드 없음".into()));
     }
 
     let mut para = parse_para_header(&records[0].data);
@@ -167,10 +173,21 @@ pub fn parse_paragraph(records: &[Record]) -> Result<Paragraph, BodyTextError> {
 
                 // CTRL_DATA 레코드 추출 (라운드트립 보존용)
                 // 중첩 CTRL_HEADER 이전까지만 검색하여 내부 컨트롤의 CTRL_DATA 혼입 방지
-                let ctrl_data = ctrl_records[1..].iter()
-                    .take_while(|r| r.tag_id != tags::HWPTAG_CTRL_HEADER)
-                    .find(|r| r.tag_id == tags::HWPTAG_CTRL_DATA)
-                    .map(|r| r.data.clone());
+                //
+                // SectionDef는 바탕쪽 같은 중첩 raw record를 extra_child_records에도 보존하므로,
+                // 다음 중첩 CTRL_HEADER 전의 직접 자식만 문단 control 슬롯의 canonical owner로
+                // 삼는다. 다른 control은 Picture/Shape처럼 CTRL_DATA가 더 깊은 level에 올 수
+                // 있어 기존 탐색 계약을 유지한다.
+                let ctrl_data_record = if matches!(control, Control::SectionDef(_)) {
+                    section_def_ctrl_data_index(&ctrl_records[1..], ctrl_records[0].level)
+                        .map(|index| &ctrl_records[index + 1])
+                } else {
+                    ctrl_records[1..]
+                        .iter()
+                        .take_while(|r| r.tag_id != tags::HWPTAG_CTRL_HEADER)
+                        .find(|r| r.tag_id == tags::HWPTAG_CTRL_DATA)
+                };
+                let ctrl_data = ctrl_data_record.map(|r| r.data.clone());
 
                 // CTRL_DATA에서 필드 이름 추출 → Field.ctrl_data_name에 설정
                 if let Control::Field(ref mut field) = control {
@@ -283,7 +300,15 @@ fn parse_para_text(data: &[u8]) -> (String, Vec<u32>, Vec<FieldRange>, Vec<[u16;
                     ext[k] = u16::from_le_bytes([data[bp], data[bp + 1]]);
                 }
             }
-            tab_extended.push(ext);
+            // 직렬화기의 "데이터 없음" 마커([0,...,0,0x0009] — body_text.rs 탭 방출부)는
+            // IR 에 싣지 않는다. 한컴 실측 탭 확장은 ext[2] 고바이트=종류 enum+1 이라
+            // 전부 0 일 수 없고, 이 마커를 tab_extended 로 실으면 레이아웃이 ext[0]=0 을
+            // 탭 결과 위치로 해석해 탭이 무폭이 된다 (#1892 — tab_extended 없던 HWP3
+            // 문단이 라운드트립 후 탭 스톱을 잃는 렌더 분기).
+            let is_null_ext = ext[..6].iter().all(|&v| v == 0) && ext[6] == 0x0009;
+            if !is_null_ext {
+                tab_extended.push(ext);
+            }
             pos += 16;
         } else if ch == 0x000A {
             // 줄 끝: char 컨트롤 (1 code unit = 2바이트)
@@ -307,6 +332,7 @@ fn parse_para_text(data: &[u8]) -> (String, Vec<u32>, Vec<FieldRange>, Vec<[u16;
                         start_char_idx: start_idx,
                         end_char_idx: char_count,
                         control_idx: field_ctrl_idx,
+                        end_field_id: 0,
                     });
                 }
             } else if is_extended_only_ctrl_char(ch) {
@@ -327,22 +353,22 @@ fn parse_para_text(data: &[u8]) -> (String, Vec<u32>, Vec<FieldRange>, Vec<[u16;
             match ch {
                 0x0018 => {
                     char_offsets.push(code_unit_pos);
-                    text.push('\u{00A0}'); // 묶음 빈칸
+                    text.push('-'); // 하이픈 (HWP 5.0 표 7: 코드 24)
                     char_count += 1;
                 }
                 0x0019 => {
                     char_offsets.push(code_unit_pos);
-                    text.push(' '); // 고정폭 빈칸
+                    text.push(' '); // 예약 (코드 25-29) — 호환성 위해 공백 유지
                     char_count += 1;
                 }
                 0x001E => {
                     char_offsets.push(code_unit_pos);
-                    text.push('-'); // 하이픈
+                    text.push('\u{00A0}'); // 묶음 빈칸 (HWP 5.0 표 7: 코드 30, NO-BREAK SPACE)
                     char_count += 1;
                 }
                 0x001F => {
                     char_offsets.push(code_unit_pos);
-                    text.push('\u{2007}'); // 고정폭 빈칸 (FIGURE SPACE)
+                    text.push('\u{2007}'); // 고정폭 빈칸 (HWP 5.0 표 7: 코드 31, FIGURE SPACE)
                     char_count += 1;
                 }
                 _ => {}
@@ -353,8 +379,7 @@ fn parse_para_text(data: &[u8]) -> (String, Vec<u32>, Vec<FieldRange>, Vec<[u16;
             if (0xD800..=0xDBFF).contains(&ch) && pos + 3 < data.len() {
                 let low = u16::from_le_bytes([data[pos + 2], data[pos + 3]]);
                 if (0xDC00..=0xDFFF).contains(&low) {
-                    let code_point =
-                        0x10000 + ((ch as u32 - 0xD800) << 10) + (low as u32 - 0xDC00);
+                    let code_point = 0x10000 + ((ch as u32 - 0xD800) << 10) + (low as u32 - 0xDC00);
                     if let Some(c) = char::from_u32(code_point) {
                         char_offsets.push(code_unit_pos);
                         text.push(c);
@@ -437,6 +462,19 @@ fn parse_para_line_seg(data: &[u8]) -> Vec<LineSeg> {
         });
     }
 
+    // [#2070] 전부 0 높이(lh=0, th=0)인 PARA_LINE_SEG 는 부재로 정규화한다.
+    // 생성계 문서(80168 등 규제영향분석서)는 lineseg 를 0 으로 채워 저장하는데,
+    // 0 높이 lineseg 는 배치 권위가 없고(한글은 열 때 재계산) 실저장 취급 시
+    // NO_LS 성장 경로가 죽어 셀/문단 높이가 선언값으로 붕괴한다
+    // (hwpx section.rs parse_paragraph 와 동일 규칙).
+    if !segs.is_empty()
+        && segs
+            .iter()
+            .all(|s| s.line_height == 0 && s.text_height == 0)
+    {
+        return Vec::new();
+    }
+
     segs
 }
 
@@ -504,7 +542,7 @@ fn parse_ctrl_header(records: &[Record]) -> Control {
 
     match ctrl_id {
         tags::CTRL_SECTION_DEF => {
-            let section_def = parse_section_def(ctrl_data, child_records);
+            let section_def = parse_section_def(ctrl_data, child_records, records[0].level);
             Control::SectionDef(Box::new(section_def))
         }
         tags::CTRL_COLUMN_DEF => {
@@ -518,18 +556,36 @@ fn parse_ctrl_header(records: &[Record]) -> Control {
     }
 }
 
+/// SectionDef가 문단 control 슬롯으로 소유할 CTRL_DATA의 자식 배열 인덱스.
+///
+/// 기존 control 파싱 계약처럼 첫 중첩 CTRL_HEADER까지만 검색한다. 그 뒤의
+/// 직접 자식 CTRL_DATA는 바탕쪽 등 raw 자식 레코드의 일부일 수 있으므로
+/// 원래 위치를 유지해야 한다.
+fn section_def_ctrl_data_index(child_records: &[Record], ctrl_level: u16) -> Option<usize> {
+    let direct_child_level = ctrl_level.saturating_add(1);
+    child_records
+        .iter()
+        .enumerate()
+        .take_while(|(_, record)| record.tag_id != tags::HWPTAG_CTRL_HEADER)
+        .find(|(_, record)| {
+            record.tag_id == tags::HWPTAG_CTRL_DATA && record.level == direct_child_level
+        })
+        .map(|(index, _)| index)
+}
+
 /// 구역 정의 파싱 ('secd' 컨트롤)
 ///
 /// ctrl_data: CTRL_HEADER의 ctrl_id 이후 데이터
-/// child_records: 자식 레코드 (PAGE_DEF, FOOTNOTE_SHAPE, PAGE_BORDER_FILL)
-fn parse_section_def(ctrl_data: &[u8], child_records: &[Record]) -> SectionDef {
+/// child_records: 자식 레코드 (CTRL_DATA, PAGE_DEF, FOOTNOTE_SHAPE, PAGE_BORDER_FILL, raw 중첩)
+/// ctrl_level: SectionDef CTRL_HEADER의 record level
+fn parse_section_def(ctrl_data: &[u8], child_records: &[Record], ctrl_level: u16) -> SectionDef {
     let mut sd = SectionDef::default();
     let mut r = ByteReader::new(ctrl_data);
 
     sd.flags = r.read_u32().unwrap_or(0);
     sd.column_spacing = r.read_i16().unwrap_or(0);
-    let _vertical_align = r.read_u16().unwrap_or(0);
-    let _horizontal_align = r.read_u16().unwrap_or(0);
+    sd.line_grid = r.read_i16().unwrap_or(0);
+    sd.char_grid = r.read_i16().unwrap_or(0);
     sd.default_tab_spacing = r.read_u32().unwrap_or(0);
     sd.outline_numbering_id = r.read_u16().unwrap_or(0);
     sd.page_num = r.read_u16().unwrap_or(0);
@@ -544,18 +600,26 @@ fn parse_section_def(ctrl_data: &[u8], child_records: &[Record]) -> SectionDef {
     }
 
     // 숨기기 플래그 (flags에서 추출)
-    sd.hide_header = sd.flags & 0x0100 != 0;
-    sd.hide_footer = sd.flags & 0x0200 != 0;
-    sd.hide_master_page = sd.flags & 0x0400 != 0;
-    sd.hide_border = sd.flags & 0x0800 != 0;
-    sd.hide_fill = sd.flags & 0x1000 != 0;
+    // HWP 5.0 spec table 119: bit 0..5 are first-page hide flags.
+    sd.hide_header = sd.flags & 0x0001 != 0;
+    sd.hide_footer = sd.flags & 0x0002 != 0;
+    sd.hide_master_page = sd.flags & 0x0004 != 0; // bit 2 (HWP5 스펙, 첫쪽 바탕쪽 감춤)
+    sd.hide_border = sd.flags & 0x0008 != 0;
+    sd.hide_fill = sd.flags & 0x0010 != 0;
     sd.hide_empty_line = sd.flags & 0x00080000 != 0; // bit 19: 빈 줄 감추기
     sd.page_num_type = ((sd.flags >> 20) & 0x03) as u8; // bit 20-21: 쪽 번호 종류 (0=이어서, 1=홀수, 2=짝수)
 
     // 자식 레코드에서 PAGE_DEF, FOOTNOTE_SHAPE, PAGE_BORDER_FILL 파싱
     let mut footnote_count = 0u32;
     let mut border_fill_count = 0u32;
-    for record in child_records {
+    let owned_ctrl_data_index = section_def_ctrl_data_index(child_records, ctrl_level);
+    for (index, record) in child_records.iter().enumerate() {
+        if Some(index) == owned_ctrl_data_index {
+            // 첫 중첩 CTRL_HEADER 전의 직접 자식 CTRL_DATA는
+            // Paragraph.ctrl_data_records가 canonical owner다.
+            continue;
+        }
+
         match record.tag_id {
             tags::HWPTAG_PAGE_DEF => {
                 sd.page_def = parse_page_def(&record.data);
@@ -580,19 +644,18 @@ fn parse_section_def(ctrl_data: &[u8], child_records: &[Record]) -> SectionDef {
             }
             _ => {
                 // 인식하지 못한 자식 레코드 보존 (바탕쪽 LIST_HEADER, 문단 등)
-                sd.extra_child_records.push(
-                    crate::model::document::RawRecord {
+                sd.extra_child_records
+                    .push(crate::model::document::RawRecord {
                         tag_id: record.tag_id,
                         level: record.level,
                         data: record.data.clone(),
-                    }
-                );
+                    });
             }
         }
     }
 
     // extra_child_records에서 바탕쪽 (LIST_HEADER) 파싱
-    sd.master_pages = parse_master_pages_from_raw(&sd.extra_child_records);
+    sd.master_pages = parse_master_pages_from_raw(&sd.extra_child_records, sd.flags);
 
     sd
 }
@@ -600,8 +663,11 @@ fn parse_section_def(ctrl_data: &[u8], child_records: &[Record]) -> SectionDef {
 /// extra_child_records에서 바탕쪽 LIST_HEADER를 파싱한다.
 ///
 /// LIST_HEADER(tag 66)가 나타나면 바탕쪽으로 파싱.
-/// 순서: 1번째=양쪽(Both), 2번째=홀수(Odd), 3번째=짝수(Even)
-fn parse_master_pages_from_raw(raw_records: &[RawRecord]) -> Vec<MasterPage> {
+/// 기본 순서: 1번째=양쪽(Both), 2번째=홀수(Odd), 3번째=짝수(Even).
+/// 단, 한컴 2020이 HWPX의 희소 Odd 바탕쪽을 HWP5로 저장할 때는 LIST_HEADER 하나와
+/// SECTION_DEF 상위 플래그 `0x80000000`을 쓴다. 이 조합은 앞 구역의 짝수 쪽을
+/// 상속하고 현재 구역의 홀수 쪽만 바꾸므로 첫 목록을 Both로 해석하면 안 된다.
+fn parse_master_pages_from_raw(raw_records: &[RawRecord], section_flags: u32) -> Vec<MasterPage> {
     let mut master_pages = Vec::new();
 
     // RawRecord를 Record로 변환
@@ -616,7 +682,8 @@ fn parse_master_pages_from_raw(raw_records: &[RawRecord]) -> Vec<MasterPage> {
         .collect();
 
     // 바탕쪽 LIST_HEADER 위치 수집 (level 2만 — 하위 레벨은 도형 내부 텍스트박스)
-    let top_level = records.iter()
+    let top_level = records
+        .iter()
         .filter(|r| r.tag_id == tags::HWPTAG_LIST_HEADER)
         .map(|r| r.level)
         .min()
@@ -632,10 +699,16 @@ fn parse_master_pages_from_raw(raw_records: &[RawRecord]) -> Vec<MasterPage> {
         return master_pages;
     }
 
-    let apply_order = [HeaderFooterApply::Both, HeaderFooterApply::Odd, HeaderFooterApply::Even];
+    let apply_order = [
+        HeaderFooterApply::Both,
+        HeaderFooterApply::Odd,
+        HeaderFooterApply::Even,
+    ];
 
     for (mp_idx, &start) in list_header_positions.iter().enumerate() {
-        let apply_to = apply_order.get(mp_idx).copied().unwrap_or(HeaderFooterApply::Both);
+        let apply_to = master_page_apply_to(section_flags, list_header_positions.len(), mp_idx)
+            .or_else(|| apply_order.get(mp_idx).copied())
+            .unwrap_or(HeaderFooterApply::Both);
 
         // LIST_HEADER 데이터 파싱
         let list_data = &records[start].data;
@@ -653,13 +726,23 @@ fn parse_master_pages_from_raw(raw_records: &[RawRecord]) -> Vec<MasterPage> {
         let text_ref = r.read_u8().unwrap_or(0);
         let num_ref = r.read_u8().unwrap_or(0);
 
+        // 영역 0×0 LIST_HEADER는 MEMO/주석 컨트롤의 텍스트 박스가 오분류된 것.
+        // 실제 바탕쪽은 반드시 text_width > 0 || text_height > 0.
+        if text_width == 0 && text_height == 0 {
+            continue;
+        }
+
         // 확장 플래그 (byte 18-19, 표 139 이후)
         let ext_flags = r.read_u16().unwrap_or(0);
 
-        // 확장 바탕쪽 판별: 같은 apply_to가 이미 등록되어 있으면 확장
-        let is_extension = master_pages.iter().any(|m: &MasterPage| m.apply_to == apply_to);
-        // 겹치게 하기: ext_flags의 하위 비트로 추정
+        // Task #347: ext_flags 비트로 확장 여부 판별 (bit 1) — 휴리스틱(같은 apply_to 중복)
+        // 단독으로는 ext_flags=0x03 같은 케이스(첫 등록 + 확장 표시)를 놓침.
+        // 비트 + 휴리스틱 OR 조합으로 보강.
         let overlap = ext_flags & 0x01 != 0;
+        let is_extension = (ext_flags & 0x02 != 0)
+            || master_pages
+                .iter()
+                .any(|m: &MasterPage| m.apply_to == apply_to);
 
         // 이 LIST_HEADER에 속하는 문단 레코드 범위 결정
         let end = if mp_idx + 1 < list_header_positions.len() {
@@ -676,17 +759,35 @@ fn parse_master_pages_from_raw(raw_records: &[RawRecord]) -> Vec<MasterPage> {
             apply_to,
             is_extension,
             overlap,
+            replace_base: false,
             ext_flags,
+            page_front: false, // HWP5 바이너리 바탕쪽엔 pageFront 개념 없음
+            text_direction: 0, // HWP5 바이너리 바탕쪽엔 textDirection 개념 없음
             paragraphs,
             text_width,
             text_height,
             text_ref,
             num_ref,
+            hwpx_page_number: None,
             raw_list_header,
         });
     }
 
     master_pages
+}
+
+fn master_page_apply_to(
+    section_flags: u32,
+    list_header_count: usize,
+    master_page_index: usize,
+) -> Option<HeaderFooterApply> {
+    const MASTER_PAGE_FLAGS_MASK: u32 = 0xe000_0000;
+    const HANCOM_SINGLE_ODD_MASTER_PAGE_FLAGS: u32 = 0x8000_0000;
+
+    (list_header_count == 1
+        && master_page_index == 0
+        && section_flags & MASTER_PAGE_FLAGS_MASK == HANCOM_SINGLE_ODD_MASTER_PAGE_FLAGS)
+        .then_some(HeaderFooterApply::Odd)
 }
 
 /// 단 정의 파싱 ('cold' 컨트롤)
@@ -779,45 +880,17 @@ fn parse_footnote_shape_record(data: &[u8]) -> FootnoteShape {
 
     fs.attr = r.read_u32().unwrap_or(0);
 
-    // attr에서 number_format, numbering, placement 추출
-    let num_fmt = fs.attr & 0xFF;
-    fs.number_format = match num_fmt {
-        0 => crate::model::footnote::NumberFormat::Digit,
-        1 => crate::model::footnote::NumberFormat::CircledDigit,
-        2 => crate::model::footnote::NumberFormat::UpperRoman,
-        3 => crate::model::footnote::NumberFormat::LowerRoman,
-        4 => crate::model::footnote::NumberFormat::UpperAlpha,
-        5 => crate::model::footnote::NumberFormat::LowerAlpha,
-        6 => crate::model::footnote::NumberFormat::CircledUpperAlpha,
-        7 => crate::model::footnote::NumberFormat::CircledLowerAlpha,
-        8 => crate::model::footnote::NumberFormat::HangulSyllable,
-        9 => crate::model::footnote::NumberFormat::CircledHangulSyllable,
-        10 => crate::model::footnote::NumberFormat::HangulJamo,
-        11 => crate::model::footnote::NumberFormat::CircledHangulJamo,
-        12 => crate::model::footnote::NumberFormat::HangulDigit,
-        13 => crate::model::footnote::NumberFormat::HanjaDigit,
-        14 => crate::model::footnote::NumberFormat::CircledHanjaDigit,
-        15 => crate::model::footnote::NumberFormat::HanjaGapEul,
-        16 => crate::model::footnote::NumberFormat::HanjaGapEulHanja,
-        _ => crate::model::footnote::NumberFormat::Digit,
-    };
-    fs.numbering = match (fs.attr >> 8) & 0x03 {
-        1 => crate::model::footnote::FootnoteNumbering::RestartSection,
-        2 => crate::model::footnote::FootnoteNumbering::RestartPage,
-        _ => crate::model::footnote::FootnoteNumbering::Continue,
-    };
-    fs.placement = match (fs.attr >> 8) & 0x03 {
-        1 => crate::model::footnote::FootnotePlacement::BelowText,
-        2 => crate::model::footnote::FootnotePlacement::RightColumn,
-        _ => crate::model::footnote::FootnotePlacement::EachColumn,
-    };
+    // 표 134: bit 8~9는 위치, bit 10~11은 번호 매기기이다.
+    fs.apply_attr_fields_from_raw();
 
     fs.user_char = char::from_u32(r.read_u16().unwrap_or(0) as u32).unwrap_or('\0');
     fs.prefix_char = char::from_u32(r.read_u16().unwrap_or(0) as u32).unwrap_or('\0');
     fs.suffix_char = char::from_u32(r.read_u16().unwrap_or(0) as u32).unwrap_or('\0');
     fs.start_number = r.read_u16().unwrap_or(1);
-    fs.separator_length = r.read_i16().unwrap_or(0);
+    fs.separator_length = r.read_i16().unwrap_or(0) as i32;
     fs.separator_margin_top = r.read_i16().unwrap_or(0);
+    // HWP5 실파일에서는 이 슬롯이 한컴 UI "구분선 위" 값으로 쓰이는 사례가 있다.
+    // HWPX aboveLine 은 separator_margin_top 에 들어오므로 정규화 접근자에서 합친다.
     fs.separator_margin_bottom = r.read_i16().unwrap_or(0);
     fs.note_spacing = r.read_i16().unwrap_or(0);
 
@@ -842,6 +915,17 @@ fn parse_page_border_fill(data: &[u8]) -> PageBorderFill {
     pbf.spacing_top = r.read_i16().unwrap_or(0);
     pbf.spacing_bottom = r.read_i16().unwrap_or(0);
     pbf.border_fill_id = r.read_u16().unwrap_or(0);
+    // HWP5 PAGE_BORDER_FILL attr bit0 is the stored textBorder value.
+    // Hancom Office dialog shows bit0=0 as paper basis and bit0=1 as page basis.
+    // Task #1129 Stage 28: on initial load, a Hancom page-basis setting must
+    // render from the page/body area edge, not the paper edge.
+    pbf.ui_basis = if (pbf.attr & 0x01) != 0 {
+        pbf.basis = crate::model::page::PageBorderBasis::BodyBased;
+        crate::model::page::PageBorderUiBasis::Page
+    } else {
+        pbf.basis = crate::model::page::PageBorderBasis::PaperBased;
+        crate::model::page::PageBorderUiBasis::Paper
+    };
 
     pbf
 }
@@ -869,7 +953,11 @@ fn parse_ctrl_data_field_name(data: &[u8]) -> Option<String> {
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     let name = String::from_utf16_lossy(&wchars);
-    if name.is_empty() { None } else { Some(name) }
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 #[cfg(test)]

@@ -33,6 +33,16 @@ fn make_para_text_data(text: &str) -> Vec<u8> {
 }
 
 #[test]
+fn hancom_single_odd_master_flag_is_not_parsed_as_both() {
+    assert_eq!(
+        master_page_apply_to(0x8008_0000, 1, 0),
+        Some(HeaderFooterApply::Odd)
+    );
+    assert_eq!(master_page_apply_to(0x2008_0000, 1, 0), None);
+    assert_eq!(master_page_apply_to(0xc008_0000, 2, 0), None);
+}
+
+#[test]
 fn test_parse_para_text_simple() {
     let (text, offsets, _, _) = parse_para_text(&make_para_text_data("Hello, World!"));
     assert_eq!(text, "Hello, World!");
@@ -52,7 +62,7 @@ fn test_parse_para_text_with_tab() {
     let mut data = Vec::new();
     // "A" + tab(0x0009, inline 8 code units = 16바이트) + "B" + para break
     data.extend_from_slice(&0x0041u16.to_le_bytes()); // 'A'
-    // tab: 0x0009 + 7 dummy code units (inline control data)
+                                                      // tab: 0x0009 + 7 dummy code units (inline control data)
     data.extend_from_slice(&0x0009u16.to_le_bytes());
     for _ in 0..7 {
         data.extend_from_slice(&0x0000u16.to_le_bytes());
@@ -70,7 +80,7 @@ fn test_parse_para_text_with_extended_ctrl() {
     let mut data = Vec::new();
     // "A" + extended ctrl(0x000B, 8 code units) + "B" + para break
     data.extend_from_slice(&0x0041u16.to_le_bytes()); // 'A'
-    // Extended control character: 0x000B + 7 dummy code units
+                                                      // Extended control character: 0x000B + 7 dummy code units
     data.extend_from_slice(&0x000Bu16.to_le_bytes());
     for _ in 0..7 {
         data.extend_from_slice(&0x0000u16.to_le_bytes());
@@ -277,19 +287,15 @@ fn test_parse_section_with_section_def() {
     ctrl_data.extend_from_slice(&tags::CTRL_SECTION_DEF.to_le_bytes()); // ctrl_id
     ctrl_data.extend_from_slice(&0u32.to_le_bytes()); // flags
     ctrl_data.extend_from_slice(&0i16.to_le_bytes()); // column_spacing
-    ctrl_data.extend_from_slice(&0u16.to_le_bytes()); // vertical_align
-    ctrl_data.extend_from_slice(&0u16.to_le_bytes()); // horizontal_align
+    ctrl_data.extend_from_slice(&1200i16.to_le_bytes()); // line_grid
+    ctrl_data.extend_from_slice(&900i16.to_le_bytes()); // char_grid
     ctrl_data.extend_from_slice(&800u32.to_le_bytes()); // default_tab_spacing
     ctrl_data.extend_from_slice(&0u16.to_le_bytes()); // numbering_id
     ctrl_data.extend_from_slice(&1u16.to_le_bytes()); // page_num
     ctrl_data.extend_from_slice(&0u16.to_le_bytes()); // picture_num
     ctrl_data.extend_from_slice(&0u16.to_le_bytes()); // table_num
     ctrl_data.extend_from_slice(&0u16.to_le_bytes()); // equation_num
-    section_bytes.extend(make_record_bytes(
-        tags::HWPTAG_CTRL_HEADER,
-        1,
-        &ctrl_data,
-    ));
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_CTRL_HEADER, 1, &ctrl_data));
 
     // PAGE_DEF (secd의 자식)
     let mut page_data = Vec::new();
@@ -303,8 +309,134 @@ fn test_parse_section_with_section_def() {
 
     let section = parse_body_text_section(&section_bytes).unwrap();
     assert_eq!(section.section_def.default_tab_spacing, 800);
+    assert_eq!(section.section_def.line_grid, 1200);
+    assert_eq!(section.section_def.char_grid, 900);
     assert_eq!(section.section_def.page_num, 1);
     assert_eq!(section.section_def.page_def.width, 59528);
+}
+
+#[test]
+fn test_section_def_direct_ctrl_data_has_single_owner_and_nested_records_are_preserved() {
+    let mut section_bytes = Vec::new();
+
+    let ph = make_para_header_data(2, 0, 0);
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_PARA_HEADER, 0, &ph));
+
+    let mut ctrl_header = Vec::new();
+    ctrl_header.extend_from_slice(&tags::CTRL_SECTION_DEF.to_le_bytes());
+    ctrl_header.extend_from_slice(&[0u8; 24]);
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_CTRL_HEADER, 1, &ctrl_header));
+
+    let canonical_ctrl_data = vec![0x10, 0x20, 0x30, 0x40];
+    let additional_direct_ctrl_data = vec![0x50, 0x60, 0x70, 0x80];
+    let nested_ctrl_data = vec![0x90, 0xA0, 0xB0, 0xC0];
+    section_bytes.extend(make_record_bytes(
+        tags::HWPTAG_CTRL_DATA,
+        2,
+        &canonical_ctrl_data,
+    ));
+    section_bytes.extend(make_record_bytes(
+        tags::HWPTAG_CTRL_DATA,
+        2,
+        &additional_direct_ctrl_data,
+    ));
+
+    let nested_ctrl_id = 0x7473_6574u32; // 'test'
+    section_bytes.extend(make_record_bytes(
+        tags::HWPTAG_CTRL_HEADER,
+        2,
+        &nested_ctrl_id.to_le_bytes(),
+    ));
+    section_bytes.extend(make_record_bytes(
+        tags::HWPTAG_CTRL_DATA,
+        3,
+        &nested_ctrl_data,
+    ));
+
+    let section = parse_body_text_section(&section_bytes).unwrap();
+    let para = &section.paragraphs[0];
+
+    assert_eq!(
+        para.ctrl_data_records,
+        vec![Some(canonical_ctrl_data.clone())],
+        "SectionDef의 첫 직접 자식 CTRL_DATA는 문단 control 슬롯이 소유해야 한다"
+    );
+
+    let section_def = match &para.controls[0] {
+        Control::SectionDef(section_def) => section_def,
+        other => panic!("SectionDef를 기대했지만 {other:?}"),
+    };
+    assert!(
+        !section_def.extra_child_records.iter().any(|raw| {
+            raw.tag_id == tags::HWPTAG_CTRL_DATA
+                && raw.level == 2
+                && raw.data == canonical_ctrl_data
+        }),
+        "문단이 소유한 첫 직접 자식 CTRL_DATA를 SectionDef extra에도 중복 보존하면 안 된다"
+    );
+    assert!(
+        section_def.extra_child_records.iter().any(|raw| {
+            raw.tag_id == tags::HWPTAG_CTRL_DATA
+                && raw.level == 2
+                && raw.data == additional_direct_ctrl_data
+        }),
+        "추가 직접 자식 CTRL_DATA는 원본 보존 대상이다"
+    );
+    assert!(
+        section_def.extra_child_records.iter().any(|raw| {
+            raw.tag_id == tags::HWPTAG_CTRL_DATA && raw.level == 3 && raw.data == nested_ctrl_data
+        }),
+        "중첩 control의 CTRL_DATA는 SectionDef extra에서 보존돼야 한다"
+    );
+}
+
+#[test]
+fn test_section_def_ctrl_data_after_nested_header_stays_in_raw_children() {
+    let mut section_bytes = Vec::new();
+
+    let ph = make_para_header_data(2, 0, 0);
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_PARA_HEADER, 0, &ph));
+
+    let mut ctrl_header = Vec::new();
+    ctrl_header.extend_from_slice(&tags::CTRL_SECTION_DEF.to_le_bytes());
+    ctrl_header.extend_from_slice(&[0u8; 24]);
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_CTRL_HEADER, 1, &ctrl_header));
+
+    let nested_ctrl_id = 0x7473_6574u32; // 'test'
+    section_bytes.extend(make_record_bytes(
+        tags::HWPTAG_CTRL_HEADER,
+        2,
+        &nested_ctrl_id.to_le_bytes(),
+    ));
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_CTRL_DATA, 3, &[0x10, 0x20]));
+
+    let late_direct_ctrl_data = vec![0x30, 0x40, 0x50, 0x60];
+    section_bytes.extend(make_record_bytes(
+        tags::HWPTAG_CTRL_DATA,
+        2,
+        &late_direct_ctrl_data,
+    ));
+
+    let section = parse_body_text_section(&section_bytes).unwrap();
+    let para = &section.paragraphs[0];
+    assert_eq!(
+        para.ctrl_data_records,
+        vec![None],
+        "중첩 CTRL_HEADER 뒤의 직접 자식 CTRL_DATA를 문단 슬롯으로 이동하면 안 된다"
+    );
+
+    let section_def = match &para.controls[0] {
+        Control::SectionDef(section_def) => section_def,
+        other => panic!("SectionDef를 기대했지만 {other:?}"),
+    };
+    assert!(
+        section_def.extra_child_records.iter().any(|raw| {
+            raw.tag_id == tags::HWPTAG_CTRL_DATA
+                && raw.level == 2
+                && raw.data == late_direct_ctrl_data
+        }),
+        "중첩 CTRL_HEADER 뒤의 직접 자식 CTRL_DATA는 raw 자식의 원래 위치에 남아야 한다"
+    );
 }
 
 #[test]
@@ -323,11 +455,7 @@ fn test_parse_section_with_column_def() {
     ctrl_data.extend_from_slice(&attr.to_le_bytes()); // attr (bits 0-15)
     ctrl_data.extend_from_slice(&1000i16.to_le_bytes()); // spacing
     ctrl_data.extend_from_slice(&0u16.to_le_bytes()); // attr2 (bits 16-32)
-    section_bytes.extend(make_record_bytes(
-        tags::HWPTAG_CTRL_HEADER,
-        1,
-        &ctrl_data,
-    ));
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_CTRL_HEADER, 1, &ctrl_data));
 
     let section = parse_body_text_section(&section_bytes).unwrap();
     assert_eq!(section.paragraphs.len(), 1);
@@ -360,11 +488,7 @@ fn test_parse_table_control_delegation() {
     let mut ctrl_data = Vec::new();
     ctrl_data.extend_from_slice(&tags::CTRL_TABLE.to_le_bytes());
     ctrl_data.extend_from_slice(&[0u8; 20]); // dummy data
-    section_bytes.extend(make_record_bytes(
-        tags::HWPTAG_CTRL_HEADER,
-        1,
-        &ctrl_data,
-    ));
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_CTRL_HEADER, 1, &ctrl_data));
 
     let section = parse_body_text_section(&section_bytes).unwrap();
     let has_table = section.paragraphs[0]
@@ -386,11 +510,7 @@ fn test_parse_unknown_control() {
     let mut ctrl_data = Vec::new();
     ctrl_data.extend_from_slice(&unknown_ctrl_id.to_le_bytes());
     ctrl_data.extend_from_slice(&[0u8; 20]); // dummy data
-    section_bytes.extend(make_record_bytes(
-        tags::HWPTAG_CTRL_HEADER,
-        1,
-        &ctrl_data,
-    ));
+    section_bytes.extend(make_record_bytes(tags::HWPTAG_CTRL_HEADER, 1, &ctrl_data));
 
     let section = parse_body_text_section(&section_bytes).unwrap();
     let has_unknown = section.paragraphs[0]
@@ -423,6 +543,14 @@ fn test_parse_page_border_fill() {
     assert_eq!(pbf.attr, 0x01);
     assert_eq!(pbf.spacing_left, 100);
     assert_eq!(pbf.border_fill_id, 7);
+    assert_eq!(pbf.basis, crate::model::page::PageBorderBasis::BodyBased);
+    assert_eq!(pbf.ui_basis, crate::model::page::PageBorderUiBasis::Page);
+
+    data[0..4].copy_from_slice(&0x00u32.to_le_bytes());
+    let pbf = parse_page_border_fill(&data);
+    assert_eq!(pbf.attr, 0x00);
+    assert_eq!(pbf.basis, crate::model::page::PageBorderBasis::PaperBased);
+    assert_eq!(pbf.ui_basis, crate::model::page::PageBorderUiBasis::Paper);
 }
 
 #[test]
@@ -451,9 +579,24 @@ fn test_lineseg_field_semantics() {
             let text_preview: String = para.text.chars().take(30).collect();
             let has_large_font = para.line_segs.iter().any(|s| s.line_height > 2000);
             if para_idx < 20 || has_large_font {
-                eprintln!("Para{}: text=\"{}\" psid={} segs={}", para_idx, text_preview, para.para_shape_id, para.line_segs.len());
+                eprintln!(
+                    "Para{}: text=\"{}\" psid={} segs={}",
+                    para_idx,
+                    text_preview,
+                    para.para_shape_id,
+                    para.line_segs.len()
+                );
                 for (i, seg) in para.line_segs.iter().enumerate() {
-                    eprintln!("  L{}: vpos={} lh={} th={} bd={} ls={} tag={:#010x}", i, seg.vertical_pos, seg.line_height, seg.text_height, seg.baseline_distance, seg.line_spacing, seg.tag);
+                    eprintln!(
+                        "  L{}: vpos={} lh={} th={} bd={} ls={} tag={:#010x}",
+                        i,
+                        seg.vertical_pos,
+                        seg.line_height,
+                        seg.text_height,
+                        seg.baseline_distance,
+                        seg.line_spacing,
+                        seg.tag
+                    );
                 }
             }
         }
@@ -466,22 +609,44 @@ fn test_lineseg_field_semantics() {
 
     for (_sec_idx, section) in doc.sections.iter().enumerate() {
         for (_para_idx, para) in section.paragraphs.iter().enumerate() {
-            if para.line_segs.len() < 2 { continue; }
+            if para.line_segs.len() < 2 {
+                continue;
+            }
             for i in 0..para.line_segs.len() - 1 {
                 let curr = &para.line_segs[i];
                 let next = &para.line_segs[i + 1];
                 let vpos_diff = next.vertical_pos - curr.vertical_pos;
                 total_pairs += 1;
-                if vpos_diff == curr.line_spacing { match_ls_count += 1; }
-                if vpos_diff == curr.line_height + curr.line_spacing { match_lh_ls_count += 1; }
+                if vpos_diff == curr.line_spacing {
+                    match_ls_count += 1;
+                }
+                if vpos_diff == curr.line_height + curr.line_spacing {
+                    match_lh_ls_count += 1;
+                }
             }
         }
     }
 
     eprintln!("\n=== 결과 요약 ===");
     eprintln!("총 줄 쌍: {}", total_pairs);
-    eprintln!("vpos_diff == line_spacing: {} ({}%)", match_ls_count, if total_pairs > 0 { match_ls_count * 100 / total_pairs } else { 0 });
-    eprintln!("vpos_diff == line_height + line_spacing: {} ({}%)", match_lh_ls_count, if total_pairs > 0 { match_lh_ls_count * 100 / total_pairs } else { 0 });
+    eprintln!(
+        "vpos_diff == line_spacing: {} ({}%)",
+        match_ls_count,
+        if total_pairs > 0 {
+            match_ls_count * 100 / total_pairs
+        } else {
+            0
+        }
+    );
+    eprintln!(
+        "vpos_diff == line_height + line_spacing: {} ({}%)",
+        match_lh_ls_count,
+        if total_pairs > 0 {
+            match_lh_ls_count * 100 / total_pairs
+        } else {
+            0
+        }
+    );
 
     // 2. 문단 간 vpos 관계 분석
     eprintln!("\n=== 문단 간 관계 분석 ===");
@@ -499,7 +664,8 @@ fn test_lineseg_field_semantics() {
 
             // 현재 문단의 마지막 줄 끝 위치 (다양한 해석)
             let end_with_lh = last_seg.vertical_pos + last_seg.line_height;
-            let end_with_lh_ls = last_seg.vertical_pos + last_seg.line_height + last_seg.line_spacing;
+            let end_with_lh_ls =
+                last_seg.vertical_pos + last_seg.line_height + last_seg.line_spacing;
             let gap_from_lh = next_first.vertical_pos - end_with_lh;
             let gap_from_lh_ls = next_first.vertical_pos - end_with_lh_ls;
 
@@ -540,7 +706,10 @@ fn test_lineseg_field_semantics() {
         eprintln!("  lh={} ls={} total={}", lh, ls, lh + ls);
     }
 
-    assert_eq!(match_lh_ls_count, total_pairs, "모든 줄 쌍이 vpos_diff == line_height + line_spacing 이어야 함");
+    assert_eq!(
+        match_lh_ls_count, total_pairs,
+        "모든 줄 쌍이 vpos_diff == line_height + line_spacing 이어야 함"
+    );
 }
 
 /// 진단용 테스트: hancom-webgian.hwp에서 표를 포함하는 문단의
@@ -580,22 +749,10 @@ fn test_table_paragraph_diagnostics() {
             // 텍스트 미리보기 (첫 20자)
             let text_preview: String = para.text.chars().take(20).collect();
 
-            eprintln!(
-                "--- Section {} / Para {} ---",
-                sec_idx, para_idx
-            );
-            eprintln!(
-                "  para_shape_id: {}",
-                para.para_shape_id
-            );
-            eprintln!(
-                "  text_preview: \"{}\"",
-                text_preview
-            );
-            eprintln!(
-                "  line_segs count: {}",
-                para.line_segs.len()
-            );
+            eprintln!("--- Section {} / Para {} ---", sec_idx, para_idx);
+            eprintln!("  para_shape_id: {}", para.para_shape_id);
+            eprintln!("  text_preview: \"{}\"", text_preview);
+            eprintln!("  line_segs count: {}", para.line_segs.len());
 
             // 첫 번째 line_seg 정보
             if let Some(seg) = para.line_segs.first() {
@@ -640,10 +797,7 @@ fn test_table_paragraph_diagnostics() {
                 );
                 // host_spacing 계산 (진단 목적)
                 let host_spacing = ps.spacing_before + ps.spacing_after;
-                eprintln!(
-                    "  host_spacing (before+after): {}",
-                    host_spacing
-                );
+                eprintln!("  host_spacing (before+after): {}", host_spacing);
             } else {
                 eprintln!(
                     "  para_shape: id {} out of range (max {})",
@@ -670,7 +824,11 @@ fn test_table_paragraph_diagnostics() {
                     t_idx,
                     table.cell_spacing,
                     table.cells.len(),
-                    table.caption.as_ref().map(|c| format!("dir={:?} paras={}", c.direction, c.paragraphs.len())),
+                    table.caption.as_ref().map(|c| format!(
+                        "dir={:?} paras={}",
+                        c.direction,
+                        c.paragraphs.len()
+                    )),
                 );
 
                 // 행별 셀 높이 합산을 위해 각 셀의 크기 출력

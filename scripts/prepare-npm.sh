@@ -22,11 +22,14 @@ cat > "${PKG_DIR}/package.json" << EOF
     "rhwp_bg.wasm",
     "rhwp.js",
     "rhwp.d.ts",
-    "rhwp_bg.wasm.d.ts"
+    "rhwp_bg.wasm.d.ts",
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "hwp",
     "hwpx",
+    "hml",
     "hancom",
     "hangul",
     "한글",
@@ -39,12 +42,13 @@ cat > "${PKG_DIR}/package.json" << EOF
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/edwardkim/rhwp"
+    "url": "git+https://github.com/edwardkim/rhwp.git"
   },
   "homepage": "https://edwardkim.github.io/rhwp/",
   "bugs": {
     "url": "https://github.com/edwardkim/rhwp/issues"
   },
+  "funding": "https://github.com/sponsors/edwardkim",
   "license": "MIT",
   "author": "Edward Kim",
   "sideEffects": [
