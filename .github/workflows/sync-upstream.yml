@@ -82,3 +82,11 @@ jobs:
           git add -A
           git commit -m "chore: sync upstream RHWP"
           git push origin HEAD:main
+
+      - name: Trigger release pipeline
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run ".github/workflows/release-bundles-parallel.yml" --ref main
