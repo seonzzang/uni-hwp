@@ -23,6 +23,21 @@ Uni-HWP는 오픈소스 `rhwp`를 Embedded RHWP Engine으로 포함하고, 그 �
 
 Uni-HWP는 문서의 파싱 및 렌더링을 담당하는 **코어 엔진 영역은 오픈소스 `rhwp`의 upstream 추적성을 최대한 보존**하고, 실사용자의 편의성과 애플리케이션의 완성도를 높이는 앱 계층을 별도로 발전시킵니다.
 
+- **RHWP upstream baseline**: 현재 기준선은 `edwardkim/rhwp@v0.8.4`이며, branch head가 아니라 tagged release를 기준으로 판올림 여부를 판단합니다.
+
+### RHWP 적용 기준과 이번 변경 범위
+
+이번 정식 등록 전 실험에서는 `edwardkim/rhwp@v0.8.4`를 RHWP 적용 기준선으로 사용했습니다.  
+즉, `main` 최신 HEAD를 그대로 따라가는 방식이 아니라, 태그된 안정 릴리즈를 기준으로 Uni-HWP의 엔진 경계를 점검했습니다.
+
+이 기준선을 적용하면서 달라진 점은 다음과 같습니다.
+
+- **동기화 기준 정리**: RHWP와 공통인 코어 엔진만 업스트림 동기화 대상으로 보고, `web/`와 앱 전용 셸은 Uni-HWP 전용 경계로 유지했습니다.
+- **업스트림 추적성 확보**: 엔진 계층은 `v0.8.4` 기준으로 비교·판정하도록 맞췄고, 이후 판올림 여부도 이 기준선으로 판단합니다.
+- **앱 셸 독립성 유지**: 릴리즈 버전, 배포 방식, 사이트 UI, 제품 문구는 Uni-HWP가 별도로 관리합니다.
+- **릴리즈 산출물 유지**: Windows/macOS/Linux 패키지 이름과 배포 흐름은 Uni-HWP 정책에 따라 유지하고, 엔진 버전 기준만 RHWP 태그에 맞춥니다.
+- **검증 경로 분리**: RHWP 기준선 확인, Uni-HWP 앱 빌드, Tauri GUI 실행은 서로 다른 단계로 확인할 수 있게 정리했습니다.
+
 ### 핵심 개발 목표
 
 - **사용자 편의성(UX) 극대화**: 직관적인 인쇄 다이얼로그, PDF 내보내기 진행 상황 시각화(ETA), 인앱(In-app) 뷰어 등 실무에 즉시 투입 가능한 수준의 UX 제공.
@@ -108,64 +123,79 @@ RHWP 엔진 업그레이드 및 Uni-HWP 유지보수에 필요한 핵심 문서�
 
 문서 구조 가이드는 `docs/README.md`에서, 배포 브랜치 문서 분류 기준은 `docs/public/release/RELEASE_DOCUMENT_CLASSIFICATION.md`에서 확인할 수 있습니다.
 
+## Versioning Rule
+
+Uni-HWP는 당분간 RHWP 기준선 번호를 따라 `8.4.x` 계열로 관리합니다.
+
+- RHWP `v0.8.4`는 Uni-HWP `8.4.0`에 대응합니다.
+- 같은 RHWP 기준선 아래의 후속 변경은 `8.4.1`, `8.4.2`처럼 patch를 올립니다.
+- RHWP 기준선이 바뀌면 Uni-HWP의 `minor` 자릿수도 함께 갱신합니다.
+
+## Version History
+
+Uni-HWP 공개 버전은 최신 릴리즈부터 아래처럼 정리했습니다.
+
+| Uni-HWP 버전 | 릴리즈 날짜 | RHWP 대응 버전 | 주요 변경 |
+| --- | --- | --- | --- |
+| 8.4.0 | 2026-08-15 | `edwardkim/rhwp@v0.8.4` | RHWP 엔진 코어를 `v0.7.8`에서 `v0.8.4`로 상향하고, 암호 문서/저장 호환성, 렌더·레이아웃 정합, CLI·배포 채널 정비를 반영해 Uni-HWP 버전 체계를 `8.4.x`로 전환한 현재 릴리즈입니다.
+| 8.1.102 | 2026-04-29 | `edwardkim/rhwp@v0.7.8` | 브라우저형 RHWP 편집기를 Tauri + Rust + Vite 기반 독립 실행 데스크톱 앱으로 포장하고, 루트에 노출된 `rhwp-*` 흔적을 Uni-HWP 구조로 재배치했습니다. 이 구간에서 앱 셸 경계와 앱/확장/공유 모듈 배치가 정리되었습니다.
+| 8.1.101 | 2026-04-29 | `edwardkim/rhwp@v0.7.8` | Tauri 데스크톱 셸 위에서 브라우저형 편집기의 독립 실행 구조를 유지한 상태로 문서 닫기 UX와 인쇄/PDF 미리보기 흐름을 정리했습니다. `파일 -> 닫기`, 상단 닫기 버튼, 미저장 문서 보호, PDF 미리보기 분리 동작을 맞췄습니다.
+| 8.1.100 | 2026-04-29 | `edwardkim/rhwp@v0.7.8` | 브라우저형 RHWP 편집기를 Tauri 기반 독립 실행 데스크톱 편집기로 옮기기 시작한 초기 로컬 기준점입니다. 폰트 렌더링/폴백 출력과 dirty 문서 보호, 독립 실행 편집기 셸의 기본 골격을 잡았습니다.
+
+현재 RHWP 업스트림 기준선은 `edwardkim/rhwp@v0.8.4`입니다.  
+즉, Uni-HWP의 현재 릴리즈는 `8.4.0`이며, RHWP 엔진 코어를 `v0.7.8`에서 `v0.8.4`로 올린 상태를 반영합니다. 이후 버전은 `8.4.x` 계열로 누적됩니다.
+
 ## Architecture
 
 ```mermaid
-graph TB
-    subgraph EngineBoundary["Embedded RHWP Engine Boundary"]
-        HWP["HWP/HWPX File"] --> Engine["RHWP Parser / Document Model"]
-        Engine --> Core["Document Core"]
-        Core --> Render["Rendering / Pagination / Layout"]
-        Render --> SVG["SVG Output"]
-        Render --> Canvas["Canvas Output"]
-        Core --> WASM["WASM API"]
-    end
+flowchart TB
+  subgraph Engine["Embedded RHWP Engine"]
+    direction LR
+    F["HWP/HWPX File"] --> P["Parser / Model"] --> C["Core"] --> R["Render / Layout"]
+    C --> W["WASM API"]
+    R --> S["SVG Output"]
+    R --> A["Canvas Output"]
+  end
 
-    subgraph AdapterLayer["Black-Box Adapter Layer"]
-        WASM --> Adapter["Uni-HWP Engine Adapter / wasm-bridge"]
-        Adapter --> Lifecycle["Document Lifecycle"]
-        Adapter --> Validation["Validation / Compatibility Guard"]
-    end
+  subgraph Extensions["apps/ + packages/"]
+    direction LR
+    CH["chrome-extension"] --> SEC["shared-security"]
+    SA["safari-extension"] --> SEC
+    VS["vscode-extension"] --> X
+  end
 
-    subgraph Apps["apps/"]
-        Studio["apps/studio<br/>Uni-HWP App Shell"]
-        Chrome["apps/chrome-extension"]
-        Safari["apps/safari-extension"]
-        VSCode["apps/vscode-extension"]
-    end
+  subgraph Bridge["Uni-HWP Adapter Layer"]
+    direction LR
+    W --> X["wasm-bridge / Adapter"] --> L["Document Lifecycle"]
+    X --> V["Validation / Compatibility Guard"]
+  end
 
-    subgraph Packages["packages/"]
-        Security["packages/shared-security"]
-    end
+  subgraph Surface["Uni-HWP App Surface"]
+    direction LR
+    SH["App Shell"] --> VU["Canvas View / Input / Toolbar"]
+    SH --> PD["Print Dialog UX"]
+    SH --> PV["In-App PDF Viewer"]
+    SH --> RL["Remote Link Drop UX"]
+    SH --> ET["Progress / ETA / Cancel Overlay"]
+  end
 
-    subgraph Desktop["src-tauri/"]
-        Tauri["Tauri App Services"]
-        OS["Temp Files / Cleanup / OS Integration"]
-    end
+  subgraph Desktop["src-tauri / OS"]
+    direction LR
+    PD --> PS["Print / PDF Service"] --> PW["Print Worker Pipeline"] --> T["Tauri App Services"] --> O["Temp Files / Cleanup / OS Integration"]
+    PV --> PS
+    ET --> PS
+    RL --> RH["Remote HWP Service"] --> T
+  end
 
-    Adapter --> Studio
-    Studio --> View["Canvas View / Input / Toolbar"]
-    Studio --> PrintDialog["Print Dialog UX"]
-    Studio --> PDFViewer["In-App PDF Viewer"]
-    Studio --> LinkDrop["Remote Link Drop UX"]
-    Studio --> Progress["Progress / ETA / Cancel Overlay"]
+  X --> SH
+  L --> SH
+  V --> SH
 
-    Chrome --> Adapter
-    Safari --> Adapter
-    VSCode --> Adapter
-    Chrome --> Security
-    Safari --> Security
+  classDef surfaceBox fill:#111827,stroke:#94a3b8,color:#f8fafc,stroke-width:1.5px;
+  classDef surfaceNode fill:#374151,stroke:#cbd5e1,color:#f8fafc,stroke-width:1px;
 
-    PrintDialog --> PrintService["Print / PDF Service"]
-    PDFViewer --> PrintService
-    Progress --> PrintService
-    LinkDrop --> RemoteService["Remote HWP Service"]
-
-    PrintService --> Worker["Print Worker Pipeline"]
-    Worker --> Tauri
-    RemoteService --> Tauri
-    Tauri --> OS
-    Worker --> PDF["Chunk PDF / Merge / Save / Open"]
+  class Surface surfaceBox;
+  class SH,VU,PD,PV,RL,ET surfaceNode;
 ```
 
 ## HWPUNIT
@@ -182,7 +212,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 1. **제품 및 제조사 정보 (Product & Manufacturer)**
   - 제품명 (Product): Uni HWP
-  - 버전 (Version): 8.1.102
+  - 버전 (Version): 8.4.0
    - 제조사 (Manufacturer): Uni-HWP Studio
    - Copyright © 2026 Uni-HWP Studio
 
