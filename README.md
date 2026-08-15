@@ -112,6 +112,7 @@ cargo tauri dev
 
 RHWP 엔진 업그레이드 및 Uni-HWP 유지보수에 필요한 핵심 문서는 `docs/public/maintenance` 아래에 정리되어 있습니다.
 
+- `VERSION_HISTORY.md`
 - `docs/public/maintenance/RHWP_ENGINE_API_INVENTORY.md`
 - `docs/public/maintenance/RHWP_ENGINE_COMPATIBILITY_CHECKLIST.md`
 - `docs/public/maintenance/RHWP_ENGINE_INTEGRATION_DEVELOPMENT_PLAN.md`
