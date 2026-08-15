@@ -157,12 +157,13 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
         run: |
+          $version = $env:RELEASE_VERSION
           $dist = "dist-release"
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
           $installer = Get-ChildItem "target" -Recurse -Include "*-setup.exe","*_setup.exe" -File | Select-Object -First 1
           if (-not $installer) { throw "Windows installer artifact not found." }
-          $installerStableName = "Uni-HWP_windows_x64_ko-KR_setup.exe"
+          $installerStableName = "Uni-HWP_windows_x64_ko-KR_setup_v$version.exe"
           Copy-Item $installer.FullName (Join-Path $dist $installerStableName) -Force
 
           $portableDir = Join-Path $dist "portable"
@@ -172,7 +173,7 @@ jobs:
             Select-Object -First 1
           if (-not $portableExe) { throw "Windows portable executable not found." }
           Copy-Item $portableExe.FullName (Join-Path $portableDir "Uni-HWP.exe") -Force
-          $portableStableName = "Uni-HWP_windows_x64_ko-KR_portable.zip"
+          $portableStableName = "Uni-HWP_windows_x64_ko-KR_portable_v$version.zip"
           Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath (Join-Path $dist $portableStableName) -Force
 
           foreach ($name in @($installerStableName, $portableStableName)) {
@@ -212,13 +213,11 @@ jobs:
             os: macos-14
             target: aarch64-apple-darwin
             bundle: dmg
-            stable_artifact_name: Uni-HWP_macos_aarch64_ko-KR.dmg
             artifact_glob: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           - name: macOS Intel
             os: macos-14
             target: x86_64-apple-darwin
             bundle: dmg
-            stable_artifact_name: Uni-HWP_macos_x64_ko-KR.dmg
             artifact_glob: target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
     steps:
       - name: Checkout
@@ -259,14 +258,26 @@ jobs:
       - name: Normalize release artifact
         shell: bash
         env:
-          STABLE_ARTIFACT_NAME: ${{ matrix.stable_artifact_name }}
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
           ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
         run: |
           set -euo pipefail
           mkdir -p dist-release
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin)
+              stable_name="Uni-HWP_macos_aarch64_ko-KR_v${RELEASE_VERSION}.dmg"
+              ;;
+            x86_64-apple-darwin)
+              stable_name="Uni-HWP_macos_x64_ko-KR_v${RELEASE_VERSION}.dmg"
+              ;;
+            *)
+              echo "Unsupported macOS target: ${{ matrix.target }}" >&2
+              exit 1
+              ;;
+          esac
           artifact="$(ls $ARTIFACT_GLOB | head -n 1)"
-          cp "$artifact" "dist-release/$STABLE_ARTIFACT_NAME"
-          shasum -a 256 "dist-release/$STABLE_ARTIFACT_NAME" > "dist-release/$STABLE_ARTIFACT_NAME.sha256"
+          cp "$artifact" "dist-release/$stable_name"
+          shasum -a 256 "dist-release/$stable_name" > "dist-release/$stable_name.sha256"
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
@@ -320,12 +331,15 @@ jobs:
           tauri build --bundles "appimage"
       - name: Normalize release artifact
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist-release
           artifact="$(ls target/release/bundle/appimage/*.AppImage | head -n 1)"
-          cp "$artifact" "dist-release/Uni-HWP_linux_x64_ko-KR.AppImage"
-          shasum -a 256 "dist-release/Uni-HWP_linux_x64_ko-KR.AppImage" > "dist-release/Uni-HWP_linux_x64_ko-KR.AppImage.sha256"
+          stable_name="Uni-HWP_linux_x64_ko-KR_v${RELEASE_VERSION}.AppImage"
+          cp "$artifact" "dist-release/$stable_name"
+          shasum -a 256 "dist-release/$stable_name" > "dist-release/$stable_name.sha256"
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
@@ -343,6 +357,7 @@ jobs:
 
   build-site:
     name: Build site and web demo
+    needs: prepare-release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -384,11 +399,16 @@ jobs:
 
       - name: Assemble Pages site
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
         run: |
           set -euo pipefail
+          deploy_time="$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')"
           rm -rf pages-site
           mkdir -p pages-site/demo pages-site/assets/landing
-          cp site/index.html pages-site/index.html
+          sed -e "s#__RELEASE_VERSION__#${RELEASE_VERSION}#g" \
+              -e "s#__DEPLOYED_AT__#${deploy_time}#g" \
+              site/index.html > pages-site/index.html
           cp -R site/assets/landing/. pages-site/assets/landing/
           cp -R apps/studio/dist/. pages-site/demo/
 

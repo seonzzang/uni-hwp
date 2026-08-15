@@ -63,9 +63,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          release_version="$(python3 - <<'PY'
+import json, pathlib
+print(json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version'])
+PY
+)"
+          deploy_time="$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')"
           rm -rf pages-site
           mkdir -p pages-site/demo pages-site/assets/landing
-          cp site/index.html pages-site/index.html
+          sed -e "s#__RELEASE_VERSION__#${release_version}#g" \
+              -e "s#__DEPLOYED_AT__#${deploy_time}#g" \
+              site/index.html > pages-site/index.html
           cp -R site/assets/landing/. pages-site/assets/landing/
           cp -R apps/studio/dist/. pages-site/demo/
 
