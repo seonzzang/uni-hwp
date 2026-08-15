@@ -622,7 +622,7 @@ export class WasmBridge {
                 imageData: Uint8Array, width: number, height: number,
                 naturalWidthPx: number, naturalHeightPx: number,
                 extension: string, description: string = ''): { ok: boolean; paraIdx: number; controlIdx: number } {
-    return this.parseDocJson((doc) => doc.insertPicture(sec, paraIdx, charOffset, imageData, width, height, naturalWidthPx, naturalHeightPx, extension, description));
+    return this.parseDocJson((doc) => (doc as any).insertPicture(sec, paraIdx, charOffset, imageData, width, height, naturalWidthPx, naturalHeightPx, extension, description));
   }
 
   // ── 그림 속성 API ─────────────────────────────────────

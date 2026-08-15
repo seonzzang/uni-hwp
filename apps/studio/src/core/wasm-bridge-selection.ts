@@ -132,19 +132,19 @@ export function getClipboardText(withOptionalDoc: WithOptionalDoc): string {
 }
 
 export function copyControl(withDoc: WithDoc, sec: number, para: number, ci: number): string {
-  return withDoc((doc) => doc.copyControl(sec, para, ci));
+  return withDoc((doc) => (doc as any).copyControl(sec, para, ci));
 }
 
 export function exportControlHtml(withDoc: WithDoc, sec: number, para: number, ci: number): string {
-  return withDoc((doc) => doc.exportControlHtml(sec, para, ci));
+  return withDoc((doc) => (doc as any).exportControlHtml(sec, para, ci));
 }
 
 export function getControlImageData(withDoc: WithDoc, sec: number, para: number, ci: number): Uint8Array {
-  return withDoc((doc) => doc.getControlImageData(sec, para, ci));
+  return withDoc((doc) => (doc as any).getControlImageData(sec, para, ci));
 }
 
 export function getControlImageMime(withDoc: WithDoc, sec: number, para: number, ci: number): string {
-  return withDoc((doc) => doc.getControlImageMime(sec, para, ci));
+  return withDoc((doc) => (doc as any).getControlImageMime(sec, para, ci));
 }
 
 export function clipboardHasControl(withOptionalDoc: WithOptionalDoc): boolean {
