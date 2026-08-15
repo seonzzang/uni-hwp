@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/edwardkim/rhwp"
 
 [workspace]
-members = ["."]
+members = [".", "src-tauri"]
 resolver = "2"
 
 [lib]

@@ -42,8 +42,6 @@ jobs:
           set -euo pipefail
 
           sync_paths=(
-            "Cargo.toml"
-            "Cargo.lock"
             "examples"
             "npm"
             "src"
