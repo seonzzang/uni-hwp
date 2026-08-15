@@ -13,7 +13,6 @@ sync_paths=(
   "tests"
   "ttfs"
   "typescript"
-  "web"
 )
 
 for blocked in "apps" "site" "docs/public" ".github/workflows" "src-tauri"; do
