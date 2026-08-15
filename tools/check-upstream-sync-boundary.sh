@@ -2,8 +2,11 @@
 set -euo pipefail
 
 sync_paths=(
+  "assets"
+  "bindings"
   "examples"
   "npm"
+  "samples"
   "src"
   "scripts"
   "template"
