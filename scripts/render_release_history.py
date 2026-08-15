@@ -45,10 +45,9 @@ def main() -> int:
         if not version:
             continue
         published_at = release.get("published_at")
-        if published_at:
-            published_at = datetime.fromisoformat(published_at.replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d")
-        else:
-            published_at = "미정"
+        if not published_at:
+            continue
+        published_at = datetime.fromisoformat(published_at.replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d")
         assets = release.get("assets", [])
 
         def link(label, url):
@@ -58,18 +57,20 @@ def main() -> int:
 
         rows.append(
             "<tr>"
-            f'<td class="history-date">{html.escape(published_at)}</td>'
+            f'<td class="history-date"><div>{html.escape(published_at)}</div><div class="history-version">v{html.escape(version)}</div></td>'
             f"<td>{link('데모', '/uni-hwp/demo/')}</td>"
-            f"<td>{link('다운로드', find_asset_url(assets, asset_suffixes['win_setup'], version))}</td>"
-            f"<td>{link('다운로드', find_asset_url(assets, asset_suffixes['win_portable'], version))}</td>"
-            f"<td>{link('다운로드', find_asset_url(assets, asset_suffixes['mac_arm'], version))}</td>"
-            f"<td>{link('다운로드', find_asset_url(assets, asset_suffixes['mac_intel'], version))}</td>"
-            f"<td>{link('다운로드', find_asset_url(assets, asset_suffixes['linux'], version))}</td>"
+            "<td><div class='release-downloads'>"
+            f"<span>Windows x64 설치 {link('다운로드', find_asset_url(assets, asset_suffixes['win_setup'], version))}</span>"
+            f"<span>Windows x64 포터블 {link('다운로드', find_asset_url(assets, asset_suffixes['win_portable'], version))}</span>"
+            f"<span>macOS Apple Silicon {link('다운로드', find_asset_url(assets, asset_suffixes['mac_arm'], version))}</span>"
+            f"<span>macOS Intel {link('다운로드', find_asset_url(assets, asset_suffixes['mac_intel'], version))}</span>"
+            f"<span>Linux x64 {link('다운로드', find_asset_url(assets, asset_suffixes['linux'], version))}</span>"
+            "</div></td>"
             "</tr>"
         )
 
     if not rows:
-        sys.stdout.write('<tr><td class="history-empty" colspan="7">아직 공개된 릴리즈가 없습니다.</td></tr>')
+        sys.stdout.write('<tr><td class="history-empty" colspan="3">아직 공개된 릴리즈가 없습니다.</td></tr>')
     else:
         sys.stdout.write("\n".join(rows))
     return 0
