@@ -33,6 +33,9 @@ jobs:
           git remote add upstream https://github.com/edwardkim/rhwp.git || true
           git fetch upstream main --tags
 
+      - name: Validate sync boundary
+        run: bash tools/check-upstream-sync-boundary.sh
+
       - name: Sync upstream source files
         shell: bash
         run: |
