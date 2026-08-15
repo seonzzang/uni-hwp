@@ -32,7 +32,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve version
         id: meta
@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
@@ -97,7 +97,7 @@ jobs:
         run: wasm-pack build --target web --out-dir pkg --release
 
       - name: Upload WASM pkg artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: uni-hwp-wasm-pkg-desktop
           path: |
@@ -115,7 +115,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Cache Rust
         if: runner.os != 'Linux'
@@ -124,14 +124,14 @@ jobs:
           workspaces: src-tauri
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/studio/package-lock.json
 
       - name: Download WASM pkg artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: uni-hwp-wasm-pkg-desktop
           path: pkg
@@ -183,7 +183,7 @@ jobs:
           }
 
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-x64-release-bundles
           path: |
