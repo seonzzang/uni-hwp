@@ -1,0 +1,178 @@
+name: Build Uni-HWP macOS Release Bundles
+
+on:
+  push:
+    branches:
+      - main
+      - "release/**"
+    paths-ignore:
+      - "site/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_INCREMENTAL: 0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: release-bundles-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare-desktop:
+    name: Prepare desktop release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c "import json, pathlib; print(json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version'])")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  ensure-release-desktop:
+    name: Ensure desktop GitHub release exists
+    needs: prepare-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-desktop.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "${{ github.repository }}" --target "${GITHUB_SHA}" --title "$RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" --target "${GITHUB_SHA}" --title "$RELEASE_TAG" --notes ""
+          fi
+
+  build-wasm-pkg-desktop:
+    name: Build desktop shared WASM pkg
+    needs: prepare-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: Build WASM pkg
+        run: wasm-pack build --target web --out-dir pkg --release
+      - name: Upload WASM pkg artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: uni-hwp-wasm-pkg-desktop
+          path: |
+            pkg/rhwp.js
+            pkg/rhwp.d.ts
+            pkg/rhwp_bg.wasm
+            pkg/rhwp_bg.wasm.d.ts
+            pkg/package.json
+            pkg/LICENSE
+            pkg/README.md
+
+  build-macos:
+    name: ${{ matrix.name }}
+    needs: [prepare-desktop, ensure-release-desktop, build-wasm-pkg-desktop]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            os: macos-14
+            target: aarch64-apple-darwin
+            bundle: dmg
+            stable_artifact_name: Uni-HWP_macos_aarch64_ko-KR.dmg
+            artifact_glob: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          - name: macOS Intel
+            os: macos-14
+            target: x86_64-apple-darwin
+            bundle: dmg
+            stable_artifact_name: Uni-HWP_macos_x64_ko-KR.dmg
+            artifact_glob: target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/studio/package-lock.json
+      - name: Download WASM pkg artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: uni-hwp-wasm-pkg-desktop
+          path: pkg
+      - name: Install frontend dependencies
+        working-directory: apps/studio
+        run: npm ci --prefer-offline --no-audit
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Add Intel Rust target
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: rustup target add x86_64-apple-darwin
+      - name: Build Tauri bundle
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.target }}" ]; then
+            tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"
+          else
+            tauri build --bundles "${{ matrix.bundle }}"
+          fi
+      - name: Normalize release artifact
+        shell: bash
+        env:
+          STABLE_ARTIFACT_NAME: ${{ matrix.stable_artifact_name }}
+          ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist-release
+          artifact="$(ls $ARTIFACT_GLOB | head -n 1)"
+          cp "$artifact" "dist-release/$STABLE_ARTIFACT_NAME"
+          shasum -a 256 "dist-release/$STABLE_ARTIFACT_NAME" > "dist-release/$STABLE_ARTIFACT_NAME.sha256"
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dist-release/*
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-desktop.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
