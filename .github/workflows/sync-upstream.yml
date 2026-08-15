@@ -31,7 +31,7 @@ jobs:
 
       - name: Add upstream remote
         run: |
-          git remote add upstream https://github.com/pureink-studio/rhwp.git || true
+          git remote add upstream https://github.com/edwardkim/rhwp.git || true
           git fetch upstream main --tags
 
       - name: Create sync branch
@@ -48,12 +48,31 @@ jobs:
           sync_paths=(
             "Cargo.toml"
             "Cargo.lock"
+            "bindings"
+            "docs"
+            "examples"
+            "fuzz"
+            "gym"
+            "mydocs"
+            "npm"
+            "pdf-2020"
+            "pdf-large"
+            "pdf"
+            "rhwp-chrome"
+            "rhwp-firefox"
+            "rhwp-ios"
+            "rhwp-safari"
+            "rhwp-shared"
+            "rhwp-studio"
+            "rhwp-vscode"
             "src"
-            "src-tauri"
-            "web"
             "scripts"
+            "template"
+            "tests"
+            "tools"
             "ttfs"
             "typescript"
+            "web"
           )
 
           for path in "${sync_paths[@]}"; do
@@ -76,18 +95,29 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         run: git diff --stat
 
+      - name: Commit sync changes
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git add -A
+          git commit -m "chore: sync upstream RHWP"
+          git push origin "${SYNC_BRANCH}"
+
       - name: Open pull request
         if: steps.changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
-        with:
-          token: ${{ github.token }}
-          branch: ${{ env.SYNC_BRANCH }}
-          delete-branch: true
-          title: "chore: sync upstream RHWP"
-          body: |
-            This PR syncs shared source files from `pureink-studio/rhwp` into `uni-hwp`.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr_url="$(gh pr create \
+            --repo "${{ github.repository }}" \
+            --base main \
+            --head "${SYNC_BRANCH}" \
+            --title "chore: sync upstream RHWP" \
+            --body $'This PR syncs shared source files from `edwardkim/rhwp` into `uni-hwp`.\n\nRepo-specific files such as `apps/studio`, site deployment, and release workflows are intentionally left untouched.')"
+          echo "PR_URL=$pr_url" >> "$GITHUB_ENV"
 
-            Repo-specific files such as `apps/studio`, site deployment, and release workflows are intentionally left untouched.
-          labels: |
-            upstream-sync
-            automation
+      - name: Enable auto-merge
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr merge --auto --merge "$PR_URL" --repo "${{ github.repository }}"
