@@ -1,12 +1,12 @@
 $ErrorActionPreference = 'Stop'
 
 $upstreamCandidates = @(
-  'https://github.com/edwardkim/rhwp.git',
-  'https://github.com/pureink-studio/rhwp.git'
+  'https://github.com/edwardkim/rhwp.git'
 )
 
 $result = [ordered]@{
   checkedAt = (Get-Date).ToString('o')
+  baselineTag = 'v0.8.4'
   selectedUpstream = $null
   upstreamHead = $null
   upstreamMain = $null
