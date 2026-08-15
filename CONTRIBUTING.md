@@ -10,6 +10,12 @@ Uni-HWP 프로젝트의 생태계와 관련 리소스를 안내합니다.
 - **VS Code 확장 (VS Code Extension)** — VS Code 에디터 내에서 HWP 파일의 실시간 미리보기를 제공합니다.
 - **npm 패키지 (npm Package)** — 웹 서비스에 HWP 에디터 기능을 통합할 수 있는 코어 라이브러리입니다.
 
+## 릴리즈 및 정책 문서
+
+- **Version History** — [VERSION_HISTORY.md](VERSION_HISTORY.md)
+- **Security Policy** — [.github/SECURITY.md](.github/SECURITY.md)
+- **Code of Conduct** — [.github/CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md)
+
 ## 문의 및 제안
 
 제품 사용 중 발견된 버그나 기능 개선에 대한 의견은 GitHub **[Issues](https://github.com/seonzzang/uni-hwp/issues)** 또는 **[Discussions](https://github.com/seonzzang/uni-hwp/discussions)**를 통해 남겨주시기 바랍니다.
