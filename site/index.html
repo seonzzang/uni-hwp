@@ -50,6 +50,22 @@
         .btn-download.outline:hover { background:rgba(255,255,255,0.05); }
         .release-note { margin-top:18px; color:var(--muted-strong); font-size:13px; line-height:1.7; }
         .release-note code { color:#c4b5fd; font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
+        .release-history { margin-top:28px; text-align:left; }
+        .release-history h3 { font-size:18px; font-weight:800; margin-bottom:14px; }
+        .release-history p { color:var(--muted); font-size:14px; line-height:1.6; margin-bottom:18px; }
+        .history-table-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:16px; background:rgba(255,255,255,0.03); }
+        .history-table { width:100%; border-collapse:collapse; min-width:920px; }
+        .history-table thead { background:rgba(255,255,255,0.04); }
+        .history-table th,
+        .history-table td { padding:14px 16px; border-bottom:1px solid var(--border); vertical-align:top; font-size:13px; }
+        .history-table th { text-align:left; color:#e2e8f0; font-weight:700; white-space:nowrap; }
+        .history-table td { color:var(--muted-strong); }
+        .history-table tr:last-child td { border-bottom:none; }
+        .history-table a { color:#c4b5fd; text-decoration:none; font-weight:600; }
+        .history-table a:hover { text-decoration:underline; }
+        .history-date { white-space:nowrap; font-weight:700; color:#f8fafc; }
+        .history-empty { padding:18px 16px; color:var(--muted); font-size:14px; }
+        .asset-missing { color:rgba(241,245,249,0.35); }
         footer { padding:48px 40px; text-align:center; color:var(--muted); font-size:13px; border-top:1px solid var(--border); }
         footer a { color:var(--muted); text-decoration:none; }
         footer a:hover { color:var(--text); }
@@ -116,6 +132,28 @@
         </div>
         <div class="release-note" id="deploy-meta">
             현재 릴리즈 <code>__RELEASE_VERSION__</code> · 최종 배포 <code>__DEPLOYED_AT__</code>
+        </div>
+        <div class="release-history" id="release-history">
+            <h3>릴리즈 기록</h3>
+            <p>새 버전이 GitHub Releases에 올라오면 이 표가 자동으로 갱신되고, 과거 버전은 아래로 누적됩니다.</p>
+            <div class="history-table-wrap">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>릴리즈 날짜</th>
+                            <th>온라인 데모</th>
+                            <th>Win x64 설치</th>
+                            <th>Win x64 포터블</th>
+                            <th>macOS Apple Silicon</th>
+                            <th>macOS Intel</th>
+                            <th>Linux x64</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+__RELEASE_HISTORY_ROWS__
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
