@@ -31,7 +31,7 @@ jobs:
       - name: Add upstream remote
         run: |
           git remote add upstream https://github.com/edwardkim/rhwp.git || true
-          git fetch upstream main --tags
+          git fetch upstream --tags
 
       - name: Validate sync boundary
         run: bash tools/check-upstream-sync-boundary.sh
@@ -41,6 +41,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          sync_ref="v0.8.4"
           sync_paths=(
             "assets"
             "bindings"
@@ -53,13 +54,12 @@ jobs:
             "tests"
             "ttfs"
             "typescript"
-            "web"
           )
 
           for path in "${sync_paths[@]}"; do
-            if git cat-file -e "upstream/main:${path}" 2>/dev/null; then
+            if git cat-file -e "${sync_ref}:${path}" 2>/dev/null; then
               rm -rf "$path"
-              git checkout upstream/main -- "$path"
+              git checkout "$sync_ref" -- "$path"
             fi
           done
 
@@ -90,4 +90,3 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run ".github/workflows/release-bundles-parallel.yml" --repo "$GITHUB_REPOSITORY" --ref main
-
