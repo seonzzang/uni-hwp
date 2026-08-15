@@ -77,6 +77,5 @@
 | File | mydocs\working\uni-hwp_validation_modal_verification_20260424.md | uni-hwp_validation_modal_verification_20260424.md |
 | File | uni-hwp-studio\public\uni-hwp.js | uni-hwp.js |
 | File | tools\capture-uni-hwp-app-window.ps1 | capture-uni-hwp-app-window.ps1 |
-| File | typescript\uni-hwp.d.ts | uni-hwp.d.ts |
+| File | typescript\uni-hwp.d.ts | pkg\rhwp.d.ts |
 | File | web\uni-hwp.js | uni-hwp.js |
-

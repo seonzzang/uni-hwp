@@ -148,7 +148,7 @@ doc.insertText(0, 0, 0, '안녕하세요');
 doc.createTable(0, 0, 0, 2, 2);
 ```
 
-전체 편집 API 목록과 시그니처는 패키지에 포함된 타입 정의 `rhwp.d.ts` 를 참고하세요
+전체 편집 API 목록과 시그니처는 패키지에 포함된 타입 정의 `pkg/rhwp.d.ts` 를 참고하세요
 (IDE 자동완성으로 인자·반환 타입을 확인할 수 있습니다).
 
 ### options object 변형 (`*Ex`) — 권장
@@ -175,7 +175,7 @@ doc.insertPictureEx(
 - 키는 camelCase(`section_idx` → `sectionIdx`). 선택 키는 생략 시 기본값으로 처리됩니다.
 - 반환값과 동작은 positional 버전과 동일합니다.
 - 이미지 같은 바이너리 데이터는 JSON 이 아니라 별도 인자로 받습니다.
-- 어떤 메서드에 `*Ex` 가 있는지는 `rhwp.d.ts` 에서 `Ex(options` 로 확인할 수 있습니다.
+- 어떤 메서드에 `*Ex` 가 있는지는 `pkg/rhwp.d.ts` 에서 `Ex(options` 로 확인할 수 있습니다.
 
 > 0.x 단계라 편집 API 시그니처가 바뀔 수 있습니다. 인자가 많은 API 는 `*Ex` 사용을
 > 권장하며, 변경 사항은 CHANGELOG 의 `### API` 항목에 기록합니다.
