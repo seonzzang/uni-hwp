@@ -1,0 +1,93 @@
+name: Sync upstream RHWP
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-rhwp
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Sync upstream changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/pureink-studio/rhwp.git || true
+          git fetch upstream main --tags
+
+      - name: Create sync branch
+        run: |
+          branch="sync/upstream-rhwp-$(date -u +%Y%m%d-%H%M%S)"
+          echo "SYNC_BRANCH=$branch" >> "$GITHUB_ENV"
+          git checkout -b "$branch"
+
+      - name: Sync upstream source files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sync_paths=(
+            "Cargo.toml"
+            "Cargo.lock"
+            "src"
+            "src-tauri"
+            "web"
+            "scripts"
+            "ttfs"
+            "typescript"
+          )
+
+          for path in "${sync_paths[@]}"; do
+            if git cat-file -e "upstream/main:${path}" 2>/dev/null; then
+              rm -rf "$path"
+              git checkout upstream/main -- "$path"
+            fi
+          done
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Inspect diff
+        if: steps.changes.outputs.changed == 'true'
+        run: git diff --stat
+
+      - name: Open pull request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ github.token }}
+          branch: ${{ env.SYNC_BRANCH }}
+          delete-branch: true
+          title: "chore: sync upstream RHWP"
+          body: |
+            This PR syncs shared source files from `pureink-studio/rhwp` into `uni-hwp`.
+
+            Repo-specific files such as `apps/studio`, site deployment, and release workflows are intentionally left untouched.
+          labels: |
+            upstream-sync
+            automation
