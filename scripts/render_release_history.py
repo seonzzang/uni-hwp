@@ -69,6 +69,11 @@ MOCK_RELEASES = [
     },
 ]
 
+# Keep the public site focused on the supported release line. Older experimental
+# releases stay available on GitHub but are not included in the download table.
+RELEASE_BASELINE_TAGS = {"v8.4.0", "v8.1.102", "v8.1.101", "v8.1.100"}
+RELEASE_BASELINE_DATE = "2026-08-15T00:00:00Z"
+
 
 def main() -> int:
     use_mock = os.environ.get("RENDER_RELEASE_HISTORY_MOCK") == "1"
@@ -140,6 +145,10 @@ def main() -> int:
     release_items = []
     for release in releases:
         if release.get("draft") or release.get("prerelease"):
+            continue
+        tag_name = release.get("tag_name") or ""
+        published_at = release.get("published_at") or ""
+        if tag_name not in RELEASE_BASELINE_TAGS and published_at < RELEASE_BASELINE_DATE:
             continue
         version = (release.get("tag_name") or release.get("name") or "").lstrip("v")
         if not version:
