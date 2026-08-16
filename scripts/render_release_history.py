@@ -57,7 +57,7 @@ MOCK_RELEASES = [
         ],
     },
     {
-        "tag_name": "v0.8.100",
+        "tag_name": "v8.1.100",
         "published_at": "2026-04-28T11:10:00Z",
         "assets": [
             {"name": "Uni-HWP_windows_x64_ko-KR_setup.exe", "browser_download_url": "https://example.invalid/Uni-HWP_windows_x64_ko-KR_setup.exe"},

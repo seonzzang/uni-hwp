@@ -28,8 +28,8 @@ jobs:
             version: 8.1.102
           - tag: v8.1.101
             version: 8.1.101
-          - tag: v0.8.100
-            version: 0.8.100
+          - tag: v8.1.100
+            version: 8.1.100
     steps:
       - name: Checkout release source
         uses: actions/checkout@v5
