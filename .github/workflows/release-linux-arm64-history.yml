@@ -24,8 +24,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - tag: v8.1.102
-            version: 8.1.102
           - tag: v8.1.101
             version: 8.1.101
           - tag: v8.1.100
