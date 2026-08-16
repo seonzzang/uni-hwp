@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
@@ -137,3 +138,12 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" dist-release/* \
             --repo "${{ github.repository }}" --clobber
+
+      - name: Refresh release download site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run deploy-site.yml \
+            --repo "${{ github.repository }}" --ref main
