@@ -15,6 +15,7 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  actions: write
 
 env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
@@ -437,3 +438,13 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         shell: bash
         run: gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
+
+  deploy-site:
+    name: Deploy release site after all platform builds
+    needs: [build-windows, build-macos, build-linux, build-linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch site deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-site.yml --repo "${{ github.repository }}" --ref main
