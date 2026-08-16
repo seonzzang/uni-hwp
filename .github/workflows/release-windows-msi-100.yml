@@ -1,0 +1,71 @@
+name: Build Uni-HWP v8.1.100 Windows MSI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build-msi:
+    name: Windows MSI v8.1.100
+    runs-on: windows-2022
+    steps:
+      - name: Checkout v8.1.100
+        uses: actions/checkout@v5
+        with:
+          ref: v8.1.100
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc,wasm32-unknown-unknown
+
+      - name: Install wasm-pack and Tauri CLI
+        shell: powershell
+        run: |
+          cargo install wasm-pack --locked
+          npm install --global @tauri-apps/cli@2
+
+      - name: Build shared WASM package
+        run: wasm-pack build --target web --out-dir pkg --release
+
+      - name: Install legacy frontend dependencies
+        working-directory: rhwp-studio
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Build legacy frontend
+        working-directory: rhwp-studio
+        run: npm run build
+
+      - name: Build MSI
+        working-directory: src-tauri
+        run: tauri build --target x86_64-pc-windows-msvc --bundles msi
+
+      - name: Normalize and verify MSI
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path msi-dist | Out-Null
+          $msi = Get-ChildItem 'src-tauri/target' -Recurse -Filter '*.msi' -File | Select-Object -First 1
+          if (-not $msi) { throw 'MSI artifact not found.' }
+          $name = 'Uni-HWP_windows_x64_ko-KR_msi_v8.1.100.msi'
+          $out = Join-Path 'msi-dist' $name
+          Copy-Item $msi.FullName $out -Force
+          $hash = (Get-FileHash $out -Algorithm SHA256).Hash.ToLower()
+          Set-Content (Join-Path 'msi-dist' "$name.sha256") "$hash *$name" -Encoding ascii
+
+      - name: Upload MSI to v8.1.100
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: gh release upload v8.1.100 msi-dist/* --repo "${{ github.repository }}" --clobber
+
