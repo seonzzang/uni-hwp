@@ -104,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist-release
-          artifact="$(find target/release/bundle/appimage -type f -name '*.AppImage' -print -quit)"
+          artifact="$(find . -type f -path '*/bundle/appimage/*.AppImage' -print -quit)"
           test -n "$artifact"
           output="dist-release/Uni-HWP_linux_arm64_ko-KR_v${RELEASE_VERSION}.AppImage"
           cp "$artifact" "$output"
