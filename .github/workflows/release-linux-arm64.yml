@@ -94,12 +94,12 @@ jobs:
           rustc -Vv
           node --version
           npm --version
-          cargo tauri --version
+          tauri --version
           test "$(uname -m)" = "aarch64"
 
       - name: Build ARM64 AppImage
         working-directory: src-tauri
-        run: cargo tauri build --bundles appimage
+        run: tauri build --bundles appimage
 
       - name: Normalize and verify artifact
         id: artifact
