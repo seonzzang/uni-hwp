@@ -1,4 +1,4 @@
-name: Rebuild Historical Linux ARM64 Releases
+name: Rebuild Uni-HWP v8.1.102 Linux ARM64 Release
 
 on:
   workflow_dispatch:
@@ -13,28 +13,18 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: release-linux-arm64-history
+  group: release-linux-arm64-v8.1.102
   cancel-in-progress: false
 
 jobs:
   build-linux-arm64:
-    name: Linux ARM64 ${{ matrix.tag }}
+    name: Linux ARM64 v8.1.102
     runs-on: ubuntu-24.04-arm
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - tag: v8.1.101
-            version: 8.1.101
-            frontend_dir: rhwp-studio
-          - tag: v8.1.100
-            version: 8.1.100
-            frontend_dir: rhwp-studio
     steps:
-      - name: Checkout release source
+      - name: Checkout v8.1.102 source
         uses: actions/checkout@v5
         with:
-          ref: ${{ matrix.tag }}
+          ref: v8.1.102
           fetch-depth: 0
 
       - name: Configure parallel build
@@ -44,11 +34,10 @@ jobs:
           jobs="$(nproc)"
           test "$jobs" -ge 1
           echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"
-          echo "CARGO_BUILD_PIPELINING=true" >> "$GITHUB_ENV"
           echo "MAKEFLAGS=-j$jobs" >> "$GITHUB_ENV"
           echo "CMAKE_BUILD_PARALLEL_LEVEL=$jobs" >> "$GITHUB_ENV"
           echo "RAYON_NUM_THREADS=$jobs" >> "$GITHUB_ENV"
-          echo "Using $jobs CPU workers for ${{ matrix.tag }}"
+          echo "Using $jobs CPU workers for v8.1.102"
 
       - name: Install Linux dependencies
         run: |
@@ -77,11 +66,11 @@ jobs:
         run: wasm-pack build --target web --out-dir pkg --release
 
       - name: Install frontend dependencies
-        working-directory: ${{ matrix.frontend_dir }}
+        working-directory: apps/studio
         run: npm ci --prefer-offline --no-audit
 
       - name: Build frontend
-        working-directory: ${{ matrix.frontend_dir }}
+        working-directory: apps/studio
         run: npm run build
 
       - name: Install Tauri CLI
@@ -101,18 +90,14 @@ jobs:
 
       - name: Normalize and verify artifact
         shell: bash
-        env:
-          RELEASE_VERSION: ${{ matrix.version }}
         run: |
           set -euo pipefail
           mkdir -p dist-release
-          echo "Release tag: ${{ matrix.tag }}"
-          echo "Frontend directory: ${{ matrix.frontend_dir }}"
           echo "Candidate bundle files:"
           find . -type f \( -name '*.AppImage' -o -name '*.AppImage.tar.gz' \) -print
           artifact="$(find . -type f -path '*/bundle/appimage/*.AppImage' -print -quit)"
           test -n "$artifact"
-          output="dist-release/Uni-HWP_linux_arm64_ko-KR_v${RELEASE_VERSION}.AppImage"
+          output="dist-release/Uni-HWP_linux_arm64_ko-KR_v8.1.102.AppImage"
           cp "$artifact" "$output"
           file_output="$(file "$output")"
           printf '%s\n' "$file_output"
@@ -123,25 +108,15 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: linux-arm64-${{ matrix.tag }}
+          name: linux-arm64-v8.1.102
           path: dist-release/*
 
-      - name: Upload to matching GitHub Release
+      - name: Upload to v8.1.102 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ matrix.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "$RELEASE_TAG" dist-release/* \
-            --repo "${{ github.repository }}" --clobber
+        run: gh release upload v8.1.102 dist-release/* --repo "${{ github.repository }}" --clobber
 
-  deploy-site:
-    name: Refresh release site after historical uploads
-    needs: build-linux-arm64
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch site deployment
+      - name: Refresh release download site
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-site.yml --repo "${{ github.repository }}" --ref main
