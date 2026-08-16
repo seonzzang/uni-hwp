@@ -38,21 +38,12 @@
         .feature-icon { width:48px; height:48px; border-radius:12px; background:linear-gradient(135deg, rgba(108,99,255,0.2), rgba(167,139,250,0.2)); display:flex; align-items:center; justify-content:center; font-size:24px; margin-bottom:20px; }
         .feature-card h3 { font-size:18px; font-weight:700; margin-bottom:12px; }
         .feature-card p { font-size:14px; color:var(--muted); line-height:1.7; }
-        .download-section { padding:80px 40px; background:linear-gradient(135deg, rgba(108,99,255,0.08), rgba(56,189,248,0.05)); border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
-        .download-inner { max-width:800px; margin:0 auto; text-align:center; }
-        .download-inner h2 { font-size:36px; font-weight:900; margin-bottom:16px; }
-        .download-inner p { color:var(--muted); margin-bottom:40px; font-size:16px; }
-        .download-buttons { display:flex; justify-content:center; gap:16px; flex-wrap:wrap; }
-        .btn-download { display:flex; align-items:center; gap:10px; padding:16px 28px; border-radius:12px; font-size:15px; font-weight:600; text-decoration:none; transition:all 0.2s; }
-        .btn-download.primary { background:linear-gradient(135deg,#6c63ff,#a78bfa); color:white; box-shadow:0 8px 24px rgba(108,99,255,0.3); }
-        .btn-download.primary:hover { transform:translateY(-2px); box-shadow:0 12px 32px rgba(108,99,255,0.4); }
-        .btn-download.outline { border:1px solid var(--border); color:var(--text); }
-        .btn-download.outline:hover { background:rgba(255,255,255,0.05); }
-        .release-note { margin-top:18px; color:var(--muted-strong); font-size:13px; line-height:1.7; }
-        .release-note code { color:#c4b5fd; font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
         .release-history { margin-top:28px; text-align:left; }
-        .release-history h3 { font-size:18px; font-weight:800; margin-bottom:14px; }
+        .release-history h2 { font-size:28px; font-weight:900; letter-spacing:-0.6px; margin-bottom:10px; }
         .release-history p { color:var(--muted); font-size:14px; line-height:1.6; margin-bottom:18px; }
+        .release-legend { display:flex; flex-wrap:wrap; gap:10px 14px; margin:0 0 18px; color:var(--muted-strong); font-size:13px; line-height:1.5; }
+        .release-legend span { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid var(--border); border-radius:999px; background:rgba(255,255,255,0.03); }
+        .release-legend code { color:#c4b5fd; font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
         .history-table-wrap { border:1px solid var(--border); border-radius:16px; background:rgba(255,255,255,0.03); }
         .history-table { width:100%; border-collapse:collapse; table-layout:fixed; }
         .history-table thead { background:rgba(255,255,255,0.04); }
@@ -65,8 +56,8 @@
         .history-table a:hover { text-decoration:underline; }
         .history-date { font-weight:700; color:#f8fafc; }
         .history-version { margin-top:6px; font-size:12px; color:#a5b4fc; }
-        .release-downloads { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px 12px; }
-        .release-downloads span { display:inline-flex; gap:6px; white-space:normal; }
+        .release-downloads { display:grid; gap:8px 12px; }
+        .release-downloads span { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:8px; align-items:center; white-space:normal; }
         .history-empty { padding:18px 16px; color:var(--muted); font-size:14px; }
         .asset-missing { color:rgba(241,245,249,0.35); }
         footer { padding:48px 40px; text-align:center; color:var(--muted); font-size:13px; border-top:1px solid var(--border); }
@@ -117,43 +108,30 @@
     </div>
 </div>
 
-<div class="download-section" id="download">
-    <div class="download-inner">
-        <h2>지금 바로 시작하세요</h2>
-        <p>브라우저에서 바로 사용하거나, 운영체제에 맞는 Uni-HWP 배포판을 바로 내려받으세요.</p>
-        <div class="download-buttons">
-            <a href="./demo/" class="btn-download primary">🌐 온라인 데모 실행</a>
-            <a href="https://github.com/seonzzang/uni-hwp/releases/latest/download/Uni-HWP_windows_x64_ko-KR_setup_v__RELEASE_VERSION__.exe" class="btn-download outline">⬇ Windows x64 설치</a>
-            <a href="https://github.com/seonzzang/uni-hwp/releases/latest/download/Uni-HWP_windows_x64_ko-KR_portable_v__RELEASE_VERSION__.zip" class="btn-download outline">📦 Windows x64 포터블</a>
-            <a href="https://github.com/seonzzang/uni-hwp/releases/latest/download/Uni-HWP_macos_aarch64_ko-KR_v__RELEASE_VERSION__.dmg" class="btn-download outline">🍎 macOS Apple Silicon</a>
-            <a href="https://github.com/seonzzang/uni-hwp/releases/latest/download/Uni-HWP_macos_x64_ko-KR_v__RELEASE_VERSION__.dmg" class="btn-download outline">🍎 macOS Intel</a>
-            <a href="https://github.com/seonzzang/uni-hwp/releases/latest/download/Uni-HWP_linux_x64_ko-KR_v__RELEASE_VERSION__.AppImage" class="btn-download outline">🐧 Linux x64 AppImage</a>
-            <a href="https://github.com/seonzzang/uni-hwp" class="btn-download outline">📂 GitHub 소스코드</a>
-        </div>
-        <div class="release-note">
-            최신 배포판은 <code>latest release</code> 자산과 자동 연결됩니다.
-        </div>
-        <div class="release-note" id="deploy-meta">
-            현재 릴리즈 <code>__RELEASE_VERSION__</code> · 최종 배포 <code>__DEPLOYED_AT__</code>
-        </div>
-        <div class="release-history" id="release-history">
-            <h3>릴리즈 기록</h3>
-            <p>새 버전이 GitHub Releases에 올라오면 이 표가 자동으로 갱신되고, 과거 버전은 아래로 누적됩니다.</p>
-            <div class="history-table-wrap">
-                <table class="history-table">
-                    <thead>
-                        <tr>
-                            <th style="width:24%;">릴리즈 날짜</th>
-                            <th style="width:16%;">온라인 데모</th>
-                            <th style="width:60%;">다운로드</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+<div class="section release-history" id="download">
+    <div class="section-label">Release</div>
+    <h2>릴리즈 다운로드</h2>
+    <div class="release-legend">
+        <span>최종 배포 <code>__DEPLOYED_AT__</code></span>
+        <span>Windows x64 <code>(amd64)</code></span>
+        <span>Windows portable</span>
+        <span>macOS arm64</span>
+        <span>macOS x86_64</span>
+        <span>Linux amd64</span>
+    </div>
+    <div class="history-table-wrap">
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th style="width:24%;">릴리즈 날짜</th>
+                    <th style="width:16%;">온라인 데모</th>
+                    <th style="width:60%;">다운로드</th>
+                </tr>
+            </thead>
+            <tbody>
 __RELEASE_HISTORY_ROWS__
-                    </tbody>
-                </table>
-            </div>
-        </div>
+            </tbody>
+        </table>
     </div>
 </div>
 
