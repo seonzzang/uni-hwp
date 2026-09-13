@@ -50,10 +50,19 @@ export async function loadDocumentBytes(params: {
   setDocumentTransitioning(true);
   deactivateInput();
   try {
-    const docInfo = wasm.loadDocument(data, fileName);
+    let docInfo;
+    try {
+      docInfo = wasm.loadDocument(data, fileName);
+    } catch (error) {
+      throw new Error(`RHWP 엔진 파싱 실패 (${fileName}): ${error}`);
+    }
     wasm.currentFileHandle = fileHandle;
     const elapsed = performance.now() - startTime;
-    await initializeDocument(docInfo, `${fileName} — ${docInfo.pageCount}페이지 (${elapsed.toFixed(1)}ms)`);
+    try {
+      await initializeDocument(docInfo, `${fileName} — ${docInfo.pageCount}페이지 (${elapsed.toFixed(1)}ms)`);
+    } catch (error) {
+      throw new Error(`문서 렌더링 초기화 실패 (${fileName}, ${docInfo.pageCount}페이지): ${error}`);
+    }
     markDocumentClean();
   } finally {
     setDocumentTransitioning(false);

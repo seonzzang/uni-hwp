@@ -16,6 +16,7 @@ import { installEmbeddedApi } from '@/app/embedded-api';
 import { installEditorEventBindings } from '@/app/event-bindings';
 import { initializeEditorApp } from '@/app/initialize-editor';
 import { installWindowCloseGuard } from '@/app/window-close-guard';
+import { MenuBar } from '@/ui/menu-bar';
 
 const wasm = createUniHwpEngine();
 const eventBus = new EventBus();
@@ -40,6 +41,10 @@ const { registry, dispatcher } = createCommandRuntime({
   commandServices,
   eventBus,
 });
+
+// 메뉴바는 WASM·문서 캔버스 초기화와 독립적으로 즉시 연결한다.
+// 엔진 로딩이 지연되거나 실패해도 파일/편집/보기 메뉴 자체는 열려야 한다.
+new MenuBar(document.getElementById('menu-bar')!, eventBus, dispatcher);
 
 let totalSections = 1;
 

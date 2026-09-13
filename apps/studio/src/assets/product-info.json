@@ -1,7 +1,7 @@
 {
   "productName": "Uni HWP",
-  "version": "8.6.0",
-  "engineVersion": "0.8.6",
+  "version": "0.1.0",
+  "engineVersion": "0.8.4",
   "manufacturer": {
     "nameKr": "Uni-HWP Studio",
     "nameEn": "Uni-HWP Studio",

@@ -21,7 +21,7 @@ from engine_update import (  # noqa: E402
     validate_metadata,
     _parse_porcelain_z,
     executor_attestation,
-    product_version_for_engine_tag,
+    current_product_version,
 )
 
 os.environ.setdefault("UNI_HWP_EXECUTOR_ATTESTATION_KEY", "test-only-key-which-is-at-least-32-bytes-long")
@@ -94,11 +94,13 @@ def metadata(source: Path) -> dict[str, object]:
 
 
 class EngineUpdateTests(unittest.TestCase):
-    def test_product_version_follows_rhwp_release_tag(self) -> None:
-        self.assertEqual(product_version_for_engine_tag("v0.8.6"), "8.6.0")
-
-        with self.assertRaises(updater_module.EngineUpdateError):
-            product_version_for_engine_tag("main")
+    def test_product_version_is_independent_of_rhwp_release_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "apps" / "studio"
+            package.mkdir(parents=True)
+            (package / "package.json").write_text(json.dumps({"version": "8.8.6"}), encoding="utf-8")
+            self.assertEqual(current_product_version(root), "8.8.6")
 
     def test_prepare_preserves_compatibility_manifest_and_requires_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

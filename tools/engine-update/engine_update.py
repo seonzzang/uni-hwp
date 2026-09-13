@@ -16,6 +16,7 @@ import secrets
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import uuid
@@ -46,12 +47,21 @@ ABANDONED_LOCKS_FILE = "abandoned-locks.jsonl"
 DEFAULT_UPSTREAM_REPOSITORY = "https://github.com/edwardkim/rhwp"
 
 
-def product_version_for_engine_tag(tag: str) -> str:
-    """Map RHWP v0.MAJOR.PATCH to the Uni-HWP 8.PATCH.0 line."""
-    match = re.fullmatch(r"v0\.(\d+)\.(\d+)", tag)
-    if not match:
-        raise EngineUpdateError(f"unsupported RHWP release tag: {tag}")
-    return f"8.{match.group(2)}.0"
+def _progress(percent: int, stage: str, message: str) -> None:
+    """Send progress to the UI without contaminating the CLI JSON result."""
+    print(json.dumps({"percent": percent, "stage": stage, "message": message}, ensure_ascii=False), file=sys.stderr, flush=True)
+
+
+def current_product_version(repo_root: Path) -> str:
+    """Read the fixed Uni-HWP outer version; it is independent of RHWP tags."""
+    package_path = repo_root / "apps" / "studio" / "package.json"
+    try:
+        version = json.loads(package_path.read_text(encoding="utf-8"))["version"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise EngineUpdateError(f"unable to read Uni-HWP outer version: {exc}") from exc
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise EngineUpdateError("Uni-HWP outer version must be a semantic version")
+    return version
 
 
 class EngineUpdateError(RuntimeError):
@@ -592,6 +602,7 @@ class UpdateManager:
         caller process and is never written into the candidate.
         """
         root = Path(candidate).resolve()
+        _progress(45, "compatibility", "WASM API 호환성 확인 중")
         metadata = validate_metadata(json.loads((root / METADATA_FILE).read_text(encoding="utf-8")))
         self._require_non_empty_managed_paths(root, "candidate")
         target_hash = tree_sha256(root, self.managed_paths)
@@ -613,6 +624,7 @@ class UpdateManager:
         )
         if test.returncode != 0:
             raise EngineUpdateError("upstream engine regression tests failed: " + (test.stderr or test.stdout)[-2000:])
+        _progress(65, "engine-tests", "RHWP 엔진 회귀 테스트 통과")
         npm = shutil.which("npm.cmd") or shutil.which("npm")
         if not npm:
             raise EngineUpdateError("Uni-HWP 제품 회귀 검증에 npm이 필요합니다")
@@ -624,6 +636,7 @@ class UpdateManager:
         )
         if product.returncode != 0:
             raise EngineUpdateError("Uni-HWP product regression tests failed: " + (product.stderr or product.stdout)[-2000:])
+        _progress(78, "product-tests", "Uni-HWP 제품 회귀 테스트 통과")
         path_hashes = self._path_hashes(root)
         session = str(uuid.uuid4())
         nonce = secrets.token_hex(32)
@@ -757,10 +770,12 @@ class UpdateManager:
 
     def prepare_latest(self, repository: str = DEFAULT_UPSTREAM_REPOSITORY) -> Path:
         """Fetch and stage the latest stable upstream release."""
+        _progress(15, "release", "공식 RHWP 최신 안정 릴리스 조회 중")
         release = latest_stable_release(repository)
         self.state_root.mkdir(parents=True, exist_ok=True)
         source_stage = Path(tempfile.mkdtemp(prefix=".upstream-", dir=self.state_root))
         try:
+            _progress(20, "download", f"RHWP {release['tag']} 소스 준비 중")
             clone_url = repository if repository.endswith(".git") else f"{repository}.git"
             subprocess.run(["git", "clone", "--quiet", "--depth", "1", "--branch", release["tag"], clone_url, str(source_stage)], check=True, capture_output=True, text=True)
             # `pkg/` is a generated wasm-pack artifact and is intentionally
@@ -778,6 +793,7 @@ class UpdateManager:
                     capture_output=True,
                     text=True,
                 )
+            _progress(38, "build", "WASM 엔진 빌드 완료")
             commit = subprocess.run(["git", "-C", str(source_stage), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
             metadata = {
                 "product_name": "Uni-HWP",
@@ -788,7 +804,7 @@ class UpdateManager:
                 "upstream_commit": commit,
                 "source_sha256": tree_sha256(source_stage, self.managed_paths),
                 "engine_version": release["tag"].lstrip("v"),
-                "product_version": product_version_for_engine_tag(release["tag"]),
+                "product_version": current_product_version(self.repo_root),
             }
             build_inputs = {}
             for relative in ("Cargo.toml", "Cargo.lock"):
@@ -830,6 +846,7 @@ class UpdateManager:
                     "candidate build inputs do not match the current Uni-HWP workspace: " + ", ".join(mismatches)
                 )
         verification = self.verify_candidate(candidate_path, metadata)
+        _progress(85, "apply", "검증된 엔진을 안전하게 적용할 준비 중")
         if tree_sha256(candidate_path, self.managed_paths) != metadata["source_sha256"]:
             raise EngineUpdateError("candidate contents no longer match pinned source_sha256")
         replace = replace or self._replace_path
@@ -894,6 +911,7 @@ class UpdateManager:
                 journal["state"] = "applied"
                 journal.pop("commit_pending", None)
                 _atomic_write(journal_path, json.dumps(journal, indent=2, sort_keys=True) + "\n")
+                _progress(98, "commit", f"RHWP {metadata['upstream_tag']} 엔진 버전 정보 갱신 완료")
                 return metadata
             except Exception:
                 if not backup_complete:
@@ -925,6 +943,7 @@ class UpdateManager:
         has the same immutable upstream identity as the installed engine is
         never copied over the live tree.
         """
+        _progress(5, "start", "엔진 업데이트 작업을 시작했습니다")
         candidate_path = Path(candidate).resolve() if candidate else self.prepare_latest(repository)
         metadata_path = candidate_path / METADATA_FILE
         if not metadata_path.exists():
@@ -932,9 +951,11 @@ class UpdateManager:
         metadata = validate_metadata(json.loads(metadata_path.read_text(encoding="utf-8")))
         current = json.loads(self.current_path.read_text(encoding="utf-8")) if self.current_path.exists() else None
         if isinstance(current, dict) and all(current.get(key) == metadata.get(key) for key in ("upstream_tag", "upstream_commit", "source_sha256")):
+            _progress(100, "current", f"RHWP {metadata['upstream_tag']}가 이미 최신 버전입니다")
             return {"changed": False, "reason": "same-engine", "metadata": metadata}
         self.create_verification_evidence(candidate_path)
         applied = self.apply(candidate_path)
+        _progress(100, "complete", f"RHWP {applied['upstream_tag']} 업데이트가 완료되었습니다")
         return {"changed": True, "metadata": applied}
 
     def rollback(self, journal: str | Path | None = None) -> None:

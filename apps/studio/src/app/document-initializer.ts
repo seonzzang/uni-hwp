@@ -65,7 +65,9 @@ export async function initializeLoadedDocument(params: {
     });
   } catch (error) {
     console.error('[initDoc] 오류:', error);
+    statusElement.textContent = `문서 렌더링/초기화 실패: ${error}`;
     if (window.innerWidth < 768) alert(`초기화 오류: ${error}`);
+    throw error;
   }
 }
 

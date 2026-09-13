@@ -124,8 +124,16 @@ export const fileCommands: CommandDef[] = [
     id: 'file:about',
     label: '제품 정보',
     icon: 'icon-help',
-    execute() {
-      new AboutDialog().show();
+    execute(services) {
+      // 제품 정보는 WASM 초기화 실패 여부와 무관하게 열려야 한다.
+      // 설치 엔진 버전은 AboutDialog가 Tauri 상태 조회로 갱신한다.
+      let runtimeEngineVersion: string | undefined;
+      try {
+        runtimeEngineVersion = services.wasm.getVersionInfo().engineVersion;
+      } catch {
+        // WASM 초기화 전에도 제품 정보는 열 수 있어야 한다.
+      }
+      new AboutDialog(runtimeEngineVersion).show();
     },
   },
 ];

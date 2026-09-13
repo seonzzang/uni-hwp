@@ -9,11 +9,15 @@
 import { ModalDialog } from './dialog';
 import { open } from '@tauri-apps/plugin-shell';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import productData from '../assets/product-info.json';
 
 export class AboutDialog extends ModalDialog {
-  constructor() {
+  private readonly runtimeEngineVersion?: string;
+
+  constructor(runtimeEngineVersion?: string) {
     super('제품 정보', 540); // 정돈된 느낌을 위해 가로폭 소폭 축소
+    this.runtimeEngineVersion = runtimeEngineVersion;
   }
 
   protected createBody(): HTMLElement {
@@ -59,7 +63,9 @@ export class AboutDialog extends ModalDialog {
     versionDisplay.style.marginBottom = '0';
     versionDisplay.style.letterSpacing = '0.04em';
     versionDisplay.style.fontWeight = '600';
-    versionDisplay.textContent = `VERSION ${productData.version}`;
+    const runtimeProductVersion = productData.version;
+    const runtimeEngineVersion = this.runtimeEngineVersion ?? productData.engineVersion;
+    versionDisplay.textContent = `VERSION ${runtimeProductVersion}`;
     brandHeader.appendChild(versionDisplay);
     body.appendChild(brandHeader);
 
@@ -92,7 +98,8 @@ export class AboutDialog extends ModalDialog {
       ${renderHeader(1, '제품 및 제조사 정보')}
       <div style="margin-left: 4px; margin-bottom: 24px;">
         <div style="margin-bottom: 4px;">${trans('제품명 Product:', productData.productName)}</div>
-        <div id="product-version-line" style="margin-bottom: 4px;">${trans('버전 Version:', productData.version)}</div>
+        <div id="product-version-line" style="margin-bottom: 4px;">${trans('버전 Version:', runtimeProductVersion)}</div>
+        <div id="engine-version-line" style="margin-bottom: 4px;">${trans('엔진 Engine:', runtimeEngineVersion)}</div>
         <div style="margin-bottom: 4px;">
           ${trans('제조사 Manufacturer:', '')}
           <a href="#" id="uni-hwp-home" style="color: #4c6ef5; text-decoration: underline; font-weight: 600;">${productData.manufacturer.nameKr}</a>
@@ -165,15 +172,45 @@ export class AboutDialog extends ModalDialog {
     void invoke<{ engine_version: string | null; product_version: string | null }>('get_installed_engine_release')
       .then((installed) => {
         if (!installed.product_version) return;
-        versionDisplay.textContent = `VERSION ${installed.product_version}`;
-        const productVersionLine = scrollBox.querySelector('#product-version-line');
-        if (productVersionLine) {
-          productVersionLine.innerHTML = trans('버전 Version:', installed.product_version);
+        const engineVersionLine = scrollBox.querySelector('#engine-version-line');
+        if (engineVersionLine && installed.engine_version) {
+          engineVersionLine.innerHTML = trans('엔진 Engine:', installed.engine_version);
         }
       })
       .catch(() => {
         // The static product-info.json remains the fallback for browser mode.
       });
+
+    const updateProgress = document.createElement('div');
+    updateProgress.style.display = 'none';
+    updateProgress.style.marginTop = '14px';
+    updateProgress.style.textAlign = 'left';
+
+    const updateProgressLabel = document.createElement('div');
+    updateProgressLabel.style.fontSize = '0.72rem';
+    updateProgressLabel.style.color = '#64748b';
+    updateProgressLabel.style.marginBottom = '6px';
+
+    const updateProgressTrack = document.createElement('div');
+    updateProgressTrack.style.height = '6px';
+    updateProgressTrack.style.background = '#e9edf5';
+    updateProgressTrack.style.borderRadius = '999px';
+    updateProgressTrack.style.overflow = 'hidden';
+
+    const updateProgressFill = document.createElement('div');
+    updateProgressFill.style.height = '100%';
+    updateProgressFill.style.width = '0%';
+    updateProgressFill.style.background = '#4c6ef5';
+    updateProgressFill.style.transition = 'width 240ms ease';
+    updateProgressTrack.appendChild(updateProgressFill);
+    updateProgress.append(updateProgressLabel, updateProgressTrack);
+    body.appendChild(updateProgress);
+
+    const setUpdateProgress = (percent: number, label: string): void => {
+      updateProgress.style.display = 'block';
+      updateProgressLabel.textContent = `${percent}% · ${label}`;
+      updateProgressFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    };
 
     const updateButton = document.createElement('button');
     updateButton.type = 'button';
@@ -187,24 +224,45 @@ export class AboutDialog extends ModalDialog {
     updateButton.style.cursor = 'pointer';
     updateButton.addEventListener('click', async () => {
       updateButton.disabled = true;
-      updateButton.textContent = '확인 중...';
+      let stopProgress: UnlistenFn | undefined;
+      setUpdateProgress(10, '공식 RHWP 릴리스 확인 중');
+      updateButton.textContent = '릴리스 확인 중...';
       try {
+        const installed = await invoke<{ engine_version: string | null }>('get_installed_engine_release');
+        const installedEngineVersion = installed.engine_version ?? this.runtimeEngineVersion ?? productData.engineVersion;
         const result = await invoke<{ tag: string; is_newer: boolean; product_version: string }>('check_latest_engine_release', {
-          currentTag: `v${productData.engineVersion}`,
+          currentTag: installedEngineVersion.startsWith('v') ? installedEngineVersion : `v${installedEngineVersion}`,
         });
         if (!result.is_newer) {
+          setUpdateProgress(100, `최신 엔진 ${result.tag} 사용 중`);
           updateButton.textContent = `최신 엔진 ${result.tag} 사용 중`;
         } else {
-          updateButton.textContent = `업데이트 준비 중... (${result.tag})`;
+          setUpdateProgress(25, `업데이트 후보 ${result.tag} 확인됨`);
+          updateButton.textContent = `후보 준비 중... (${result.tag})`;
+          setUpdateProgress(40, '엔진 후보 다운로드·빌드·호환성 검증 중');
+          stopProgress = await listen<{ percent: number; stage: string; message: string }>('engine-update-progress', (event) => {
+            setUpdateProgress(event.payload.percent, event.payload.message);
+            updateButton.textContent = `${event.payload.message} (${event.payload.percent}%)`;
+          });
           const update = await invoke<{ stage: string; message: string }>('run_engine_update');
-          updateButton.textContent = update.stage === 'applied'
-            ? `RHWP ${result.tag} 업데이트 완료`
-            : `업데이트 차단: ${update.message}`;
+          if (update.stage === 'applied') {
+            setUpdateProgress(100, `RHWP ${result.tag} 적용 완료 · 앱 재로드 중`);
+            updateButton.textContent = `RHWP ${result.tag} 업데이트 완료 — 다시 로드 중...`;
+            window.setTimeout(() => window.location.reload(), 800);
+          } else {
+            updateProgressFill.style.background = '#e03131';
+            const reason = update.message.trim() || '업데이트를 완료하지 못했습니다. 현재 버전은 그대로 유지됩니다.';
+            setUpdateProgress(100, reason);
+            updateButton.textContent = reason;
+          }
         }
       } catch (error) {
+        updateProgressFill.style.background = '#e03131';
+        setUpdateProgress(100, `실패: ${error}`);
         updateButton.textContent = '업데이트 확인 실패';
         console.error('[engine-update]', error);
       } finally {
+        stopProgress?.();
         updateButton.disabled = false;
       }
     });

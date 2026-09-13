@@ -1,7 +1,9 @@
 use serde::Serialize;
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
-use std::process::Command;
-use std::time::Duration;
+use std::process::{Command, Stdio};
+use std::thread;
+use tauri::Emitter;
 
 const UPSTREAM_REPOSITORY: &str = "https://api.github.com/repos/edwardkim/rhwp/releases/latest";
 
@@ -77,19 +79,32 @@ pub struct EngineUpdateResult {
     pub candidate: Option<String>,
 }
 
+#[derive(Debug, Serialize, serde::Deserialize)]
+pub struct EngineUpdateProgress {
+    pub percent: u8,
+    pub stage: String,
+    pub message: String,
+}
+
 fn updater_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
 fn installed_engine_tag(fallback: Option<String>) -> Option<String> {
     let current = updater_root().join("tools").join("engine-update").join("state").join("current.json");
-    let contents = std::fs::read_to_string(current).ok()?;
-    let metadata = serde_json::from_str::<serde_json::Value>(&contents).ok()?;
-    metadata
-        .get("upstream_tag")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .or(fallback)
+    let from_pointer = std::fs::read_to_string(current)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+        .and_then(|metadata| metadata.get("upstream_tag").and_then(serde_json::Value::as_str).map(str::to_string));
+    if from_pointer.is_some() {
+        return from_pointer;
+    }
+    let package = updater_root().join("pkg").join("package.json");
+    let from_installed_package = std::fs::read_to_string(package)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+        .and_then(|value| value.get("version").and_then(serde_json::Value::as_str).map(|version| format!("v{version}")));
+    from_installed_package.or(fallback)
 }
 
 fn product_version_for_engine_tag(tag: &str) -> Option<String> {
@@ -114,19 +129,45 @@ pub fn run_engine_update(app: tauri::AppHandle) -> Result<EngineUpdateResult, St
     if !script.is_file() {
         return Err("Uni-HWP 엔진 업데이트 도구가 배포 패키지에 포함되어 있지 않습니다.".to_string());
     }
-    let output = Command::new("python")
+    let mut child = Command::new("python")
         .arg(&script)
         .arg("update")
         .current_dir(&root)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("엔진 업데이트 실행기를 시작할 수 없습니다: {error}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if !output.status.success() {
+    let stdout_pipe = child.stdout.take().ok_or_else(|| "엔진 업데이트 stdout 연결에 실패했습니다".to_string())?;
+    let stderr_pipe = child.stderr.take().ok_or_else(|| "엔진 업데이트 stderr 연결에 실패했습니다".to_string())?;
+    let stdout_thread = thread::spawn(move || {
+        let mut output = String::new();
+        let mut reader = BufReader::new(stdout_pipe);
+        let _ = reader.read_to_string(&mut output);
+        output
+    });
+    let progress_app = app.clone();
+    let stderr_thread = thread::spawn(move || {
+        let mut messages = Vec::new();
+        for line in BufReader::new(stderr_pipe).lines().map_while(Result::ok) {
+            if let Ok(progress) = serde_json::from_str::<EngineUpdateProgress>(&line) {
+                let _ = progress_app.emit("engine-update-progress", &progress);
+            } else if !line.trim().is_empty() {
+                messages.push(line);
+            }
+        }
+        messages.join("\n")
+    });
+    let output = child.wait().map_err(|error| format!("엔진 업데이트가 종료되지 않았습니다: {error}"))?;
+    let stdout = stdout_thread.join().unwrap_or_default().trim().to_string();
+    let stderr = stderr_thread.join().unwrap_or_default().trim().to_string();
+    if !output.success() {
+        // Keep implementation details in the developer console only. The
+        // product UI receives a plain-language recovery message.
+        eprintln!("[engine-update] updater failed (code {:?}): {} {}", output.code(), stderr, stdout);
         return Ok(EngineUpdateResult {
             changed: false,
             stage: "blocked".to_string(),
-            message: if stderr.is_empty() { stdout } else { stderr },
+            message: "업데이트를 완료하지 못했습니다. 현재 버전은 그대로 유지됩니다. 잠시 후 다시 시도해 주세요.".to_string(),
             candidate: None,
         });
     }
@@ -140,18 +181,5 @@ pub fn run_engine_update(app: tauri::AppHandle) -> Result<EngineUpdateResult, St
         message: if changed { "RHWP 엔진 업데이트가 적용되었습니다." } else { "이미 최신 엔진입니다." }.to_string(),
         candidate,
     };
-    if changed {
-        let executable = std::env::current_exe().map_err(|error| format!("업데이트 후 실행 파일을 찾을 수 없습니다: {error}"))?;
-        Command::new(executable)
-            .spawn()
-            .map_err(|error| format!("업데이트 후 Uni-HWP를 재시작할 수 없습니다: {error}"))?;
-        // Let the frontend paint the completion message before the old
-        // process exits. The newly spawned process uses the atomically
-        // installed pkg/ runtime on its next startup.
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(700));
-            app.exit(0);
-        });
-    }
     Ok(result)
 }

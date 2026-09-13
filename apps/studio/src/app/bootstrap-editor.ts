@@ -5,7 +5,6 @@ import type { CommandRegistry } from '@/command/registry';
 import { CanvasView } from '@/view/canvas-view';
 import { InputHandler } from '@/engine/input-handler';
 import { Toolbar } from '@/ui/toolbar';
-import { MenuBar } from '@/ui/menu-bar';
 import { ContextMenu } from '@/ui/context-menu';
 import { CommandPalette } from '@/ui/command-palette';
 import { CellSelectionRenderer } from '@/engine/cell-selection-renderer';
@@ -68,8 +67,6 @@ export function bootstrapEditor(params: BootstrapEditorParams): BootstrappedEdit
   inputHandler.setPictureObjectRenderer(
     new TableObjectRenderer(container, canvasView.getVirtualScroll(), true),
   );
-
-  new MenuBar(document.getElementById('menu-bar')!, eventBus, dispatcher);
 
   return {
     canvasView,
