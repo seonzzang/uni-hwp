@@ -575,6 +575,26 @@ export interface ReplaceResult {
   newLength?: number;
 }
 
+/** 문단 단위 쪽 감추기 설정. WASM의 JSON 표현을 제품 경계에서 타입화한다. */
+export interface PageHideSettings {
+  exists: boolean;
+  hideHeader?: boolean;
+  hideFooter?: boolean;
+  hideMasterPage?: boolean;
+  hideBorder?: boolean;
+  hideFill?: boolean;
+  hidePageNum?: boolean;
+}
+
+export interface PageHideUpdate {
+  hideHeader: boolean;
+  hideFooter: boolean;
+  hideMasterPage: boolean;
+  hideBorder: boolean;
+  hideFill: boolean;
+  hidePageNum: boolean;
+}
+
 /** 전체 치환 결과 */
 export interface ReplaceAllResult {
   ok: boolean;

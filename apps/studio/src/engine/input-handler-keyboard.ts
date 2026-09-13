@@ -817,8 +817,7 @@ export function onKeyDown(this: any, e: KeyboardEvent): void {
     case 'End': {
       e.preventDefault();
       if (e.shiftKey) {
-        this.cursor.setAnchor();
-        this.cursor.moveToLineEnd();
+        handleShiftEnd.call(this);
       } else {
         this.cursor.clearSelection();
         this.cursor.moveToLineEnd();
@@ -851,6 +850,14 @@ export function onKeyDown(this: any, e: KeyboardEvent): void {
       break;
     }
   }
+}
+
+/** Shift+End의 키보드 경로와 테스트/접근성 호출 경로를 동일하게 유지한다. */
+export function handleShiftEnd(this: any): void {
+  this.cursor.setAnchor();
+  this.cursor.moveToLineEnd();
+  this.updateCaret();
+  this.updateSelection();
 }
 
 export function handleCtrlKey(this: any, e: KeyboardEvent): void {

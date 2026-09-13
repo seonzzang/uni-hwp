@@ -6,6 +6,7 @@
  */
 import { Action } from './action';
 import { ParameterSet } from './parameter-set';
+import { createLegacyDocument } from '@/engine-boundary/legacy-document';
 import { getActionDef, getRegisteredCount, getImplementedCount, getAllActions } from './action-registry';
 
 // Wave 1~6: Action executor 등록 (import 시 자동 등록)
@@ -27,6 +28,8 @@ export class HwpCtrl {
   private cursorSection = 0;
   private cursorPara = 0;
   private cursorPos = 0;
+  /** MoveToField가 선택한 필드. SetCurFieldName은 이 선택을 기준으로 동작한다. */
+  private currentFieldName: string | null = null;
   /** 이벤트 리스너 */
   private listeners: Map<number, Function[]> = new Map();
 
@@ -51,6 +54,7 @@ export class HwpCtrl {
     try {
       const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
       this.wasmDoc = new (this.wasmDoc.constructor)(bytes);
+      this.currentFieldName = null;
       callback?.(true);
       return true;
     } catch (e) {
@@ -66,6 +70,7 @@ export class HwpCtrl {
     this.cursorSection = 0;
     this.cursorPara = 0;
     this.cursorPos = 0;
+    this.currentFieldName = null;
   }
 
   /** 원본 파일 형식에 맞게 HWP 또는 HWPX로 내보내기 */
@@ -143,6 +148,7 @@ export class HwpCtrl {
   /** 텍스트 삽입 */
   InsertText(text: string): boolean {
     try {
+      if (typeof text !== 'string') return false;
       this.wasmDoc.insertText(
         this.cursorSection, this.cursorPara, this.cursorPos, text,
       );
@@ -261,7 +267,12 @@ export class HwpCtrl {
       const loc = found.location;
       this.cursorSection = loc.sectionIndex ?? 0;
       this.cursorPara = loc.paraIndex ?? 0;
-      this.cursorPos = 0;
+      this.cursorPos = loc.charOffset ?? loc.startCharIdx ?? 0;
+      this.currentFieldName = found.name ?? null;
+      // 코어의 활성 필드 상태도 맞춘다. 실패해도 기존 호환 API처럼 좌표 이동 자체는 성공이다.
+      if (typeof this.wasmDoc.setActiveField === 'function') {
+        this.wasmDoc.setActiveField(this.cursorSection, this.cursorPara, this.cursorPos);
+      }
       return true;
     } catch (e) {
       console.error('[hwpctl] MoveToField 실패:', e);
@@ -303,11 +314,13 @@ export class HwpCtrl {
           this.cursorSection = 0;
           this.cursorPara = 0;
           this.cursorPos = 0;
+          this.currentFieldName = null;
           break;
         case 3: // 문서 시작
           this.cursorSection = 0;
           this.cursorPara = 0;
           this.cursorPos = 0;
+          this.currentFieldName = null;
           break;
         default:
           console.warn(`[hwpctl] MovePos(${pos}) 미지원`);
@@ -321,14 +334,25 @@ export class HwpCtrl {
 
   /** 현재 필드 이름 설정 */
   SetCurFieldName(name: string): boolean {
-    console.info(`[hwpctl] SetCurFieldName("${name}") — stub`);
-    return true;
+    if (typeof name !== 'string' || !name || !this.currentFieldName) return false;
+    return this.RenameField(this.currentFieldName, name);
   }
 
   /** 필드 이름 변경 */
   RenameField(oldName: string, newName: string): boolean {
-    console.info(`[hwpctl] RenameField("${oldName}" → "${newName}") — stub`);
-    return true;
+    if (typeof oldName !== 'string' || !oldName) return false;
+    try {
+      const raw = this.wasmDoc.renameField(oldName, newName ?? '');
+      const result = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (result?.ok === true) {
+        if (this.currentFieldName === oldName) this.currentFieldName = newName ?? '';
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error(`[hwpctl] RenameField("${oldName}" → "${newName}") 실패:`, e);
+      return false;
+    }
   }
 
   // ── 진행률 추적 ──
@@ -368,11 +392,17 @@ export async function createHwpCtrl(options: {
     // 이미 로딩된 WASM 모듈 사용
     wasmDoc = options.wasmModule;
   } else {
-    // 동적 로딩
-    const { default: init, HwpDocument } = await import('@wasm/rhwp.js');
-    await init(options.wasmUrl);
-    wasmDoc = HwpDocument.createEmpty();
+    // 엔진 모듈 로딩은 내부 경계에서만 수행한다.
+    wasmDoc = await createLegacyDocument(options);
   }
 
   return new HwpCtrl(wasmDoc);
+}
+
+/** 테스트 fixture/호스트가 초기화 타이밍을 추측하지 않도록 하는 안정적인 factory 계약. */
+export async function createHwpCtrlFixture(options: {
+  wasmUrl?: string;
+  wasmModule?: any;
+}): Promise<{ ctrl: HwpCtrl; ready: true }> {
+  return { ctrl: await createHwpCtrl(options), ready: true };
 }

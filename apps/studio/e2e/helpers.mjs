@@ -11,10 +11,17 @@
  */
 import puppeteer from 'puppeteer-core';
 import path from 'path';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, createWriteStream } from 'fs';
+import { spawn } from 'child_process';
 import { TestReporter } from './report-generator.mjs';
 
-const CHROME_PATH = '/home/edward/.cache/puppeteer/chrome/linux-146.0.7680.31/chrome-linux64/chrome';
+// Resolve the browser for the current host. The previous Linux-only path
+// prevented every Windows/Codex headless test from reaching the app.
+const CONFIGURED_BROWSER_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH || '';
+const LINUX_BROWSER_CANDIDATES = [
+  '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium',
+  '/home/edward/.cache/puppeteer/chrome/linux-146.0.7680.31/chrome-linux64/chrome',
+];
 const CHROME_CDP = process.env.CHROME_CDP || 'http://172.21.192.1:19222';
 const VITE_URL = process.env.VITE_URL || 'http://localhost:7700';
 const REPORT_DIR = '../output/e2e';
@@ -25,6 +32,13 @@ const WINDOWS_BROWSER_CANDIDATES = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ];
 
+function findBrowserPath() {
+  const candidates = CONFIGURED_BROWSER_PATH
+    ? [CONFIGURED_BROWSER_PATH]
+    : process.platform === 'win32' ? WINDOWS_BROWSER_CANDIDATES : LINUX_BROWSER_CANDIDATES;
+  return candidates.find(candidate => existsSync(candidate)) || null;
+}
+
 /** CLI 인수에서 --mode=host|headless 파싱 */
 function parseMode() {
   const modeArg = process.argv.find(a => a.startsWith('--mode='));
@@ -34,8 +48,76 @@ function parseMode() {
 
 const MODE = parseMode();
 
-function findWindowsBrowserPath() {
-  return WINDOWS_BROWSER_CANDIDATES.find(candidate => existsSync(candidate)) || null;
+let _managedDevServer = null;
+
+async function isDevServerHealthy() {
+  try {
+    const response = await fetch(VITE_URL, { signal: AbortSignal.timeout(2000) });
+    return response.status >= 200 && response.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+/** E2E가 의존하는 Vite를 명시적으로 준비한다. 이미 떠 있는 서버는 소유하지 않는다. */
+export async function startDevServer() {
+  if (await isDevServerHealthy()) {
+    console.log(`  [server] 기존 Vite 서버 재사용 (${VITE_URL})`);
+    return null;
+  }
+
+  const port = new URL(VITE_URL).port || '7700';
+  const logDir = path.resolve(process.cwd(), '../output/e2e');
+  mkdirSync(logDir, { recursive: true });
+  const stdout = createWriteStream(path.join(logDir, 'vite-e2e-managed.out.log'), { flags: 'a' });
+  const stderr = createWriteStream(path.join(logDir, 'vite-e2e-managed.err.log'), { flags: 'a' });
+  const command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const child = spawn(command, ['run', 'dev', '--', '--host', 'localhost', '--port', port, '--strictPort'], {
+    cwd: process.cwd(),
+    env: { ...process.env, BROWSER: 'none' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: process.platform === 'win32',
+    windowsHide: true,
+  });
+  child.stdout.pipe(stdout);
+  child.stderr.pipe(stderr);
+  _managedDevServer = { child, stdout, stderr };
+
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`Vite dev server가 조기 종료되었습니다 (exit ${child.exitCode}). 로그: ${path.join(logDir, 'vite-e2e-managed.err.log')}`);
+    }
+    if (await isDevServerHealthy()) {
+      console.log(`  [server] Vite dev server 준비 완료 (${VITE_URL})`);
+      return child;
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  await stopDevServer();
+  throw new Error(`Vite dev server health-check 시간 초과 (${VITE_URL}). 로그: ${path.join(logDir, 'vite-e2e-managed.err.log')}`);
+}
+
+/** 이 실행기가 시작한 서버만 종료한다. 외부에서 재사용한 서버는 건드리지 않는다. */
+export async function stopDevServer() {
+  const managed = _managedDevServer;
+  _managedDevServer = null;
+  if (!managed) return;
+  const { child, stdout, stderr } = managed;
+  try {
+    if (process.platform === 'win32') {
+      await new Promise(resolve => {
+        const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true });
+        killer.once('close', resolve);
+        killer.once('error', resolve);
+      });
+    } else {
+      child.kill('SIGTERM');
+    }
+  } finally {
+    stdout.end();
+    stderr.end();
+  }
 }
 
 // ─── 내장 리포터 (runTest에서 자동 사용) ─────────────────
@@ -54,10 +136,14 @@ export function setTestCase(name) {
 /** Chrome 브라우저에 연결하거나 시작하고 반환 */
 export async function launchBrowser() {
   if (MODE === 'headless') {
-    console.log('  [browser] headless Chrome 실행');
+    const executablePath = findBrowserPath();
+    if (!executablePath) {
+      throw new Error(`headless browser executable을 찾지 못했습니다. PUPPETEER_EXECUTABLE_PATH를 설정하거나 Chrome/Edge를 설치하세요 (platform=${process.platform})`);
+    }
+    console.log(`  [browser] headless browser 실행 (${executablePath})`);
     return await puppeteer.launch({
       headless: true,
-      executablePath: CHROME_PATH,
+      executablePath,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
     });
   }
@@ -71,7 +157,7 @@ export async function launchBrowser() {
     browser._isRemote = true;
     return browser;
   } catch (error) {
-    const executablePath = findWindowsBrowserPath();
+    const executablePath = findBrowserPath();
     if (!executablePath) {
       throw error;
     }
@@ -107,6 +193,11 @@ export async function createPage(browser, width, height) {
   const { windowId } = await session.send('Browser.getWindowForTarget');
   await session.send('Browser.setWindowBounds', {
     windowId, bounds: { width: w, height: h, windowState: 'normal' },
+  });
+  // 창 외곽 크기와 CSS viewport는 Windows 브라우저 장식/배율 때문에 다를 수
+  // 있다. 반응형 테스트의 width 계약을 실제 media-query viewport에도 적용한다.
+  await session.send('Emulation.setDeviceMetricsOverride', {
+    width: w, height: h, deviceScaleFactor: 1, mobile: false,
   });
   await new Promise(r => setTimeout(r, 300));
   await session.detach();
@@ -300,7 +391,7 @@ export async function getParagraphCount(page, sectionIdx = 0) {
 /** WASM bridge를 통해 문단 텍스트 조회 */
 export async function getParaText(page, secIdx, paraIdx, maxLen = 200) {
   return await page.evaluate((s, p, m) => {
-    try { return window.__wasm?.getTextRange(s, p, 0, m) ?? ''; }
+    try { return window.__wasm?.getParagraphText(s, p, m) ?? window.__wasm?.getTextRange(s, p, 0, m) ?? ''; }
     catch { return ''; }
   }, secIdx, paraIdx, maxLen);
 }
@@ -345,15 +436,18 @@ export async function runTest(title, testFn, { skipLoadApp = false } = {}) {
   _currentTC = title;
   _lastScreenshot = null;
 
-  const browser = await launchBrowser();
-  const page = await createPage(browser);
+  let browser = null;
+  let page = null;
 
   try {
+    await startDevServer();
+    browser = await launchBrowser();
+    page = await createPage(browser);
     if (!skipLoadApp) await loadApp(page);
     await testFn({ page, browser });
   } catch (err) {
     console.error('테스트 오류:', err.message || err);
-    await screenshot(page, 'error').catch(() => {});
+    if (page) await screenshot(page, 'error').catch(() => {});
     if (_reporter) _reporter.fail(_currentTC, `ERROR: ${err.message || err}`);
     process.exitCode = 1;
   } finally {
@@ -363,6 +457,7 @@ export async function runTest(title, testFn, { skipLoadApp = false } = {}) {
     _reporter = null;
     _currentTC = '';
     _lastScreenshot = null;
-    await closeBrowser(browser);
+    if (browser) await closeBrowser(browser);
+    await stopDevServer();
   }
 }

@@ -1,6 +1,11 @@
 import type { UniHwpEngine } from '@/engine-boundary/uni-hwp-engine';
 import type { DocumentPosition, CharProperties } from '@/core/types';
 
+/** Engine offsets/counts are Unicode scalar-value (Rust `char`) units. */
+export function engineTextLength(text: string): number {
+  return Array.from(text).length;
+}
+
 /** 편집 명령 공통 인터페이스 */
 export interface EditCommand {
   readonly type: string;
@@ -13,6 +18,42 @@ export interface EditCommand {
   mergeWith(other: EditCommand): EditCommand | null;
   /** 리소스 해제 (스냅샷 명령의 메모리 반환 등). 스택에서 제거될 때 호출. */
   discard?(wasm: UniHwpEngine): void;
+}
+
+/** Embedded range replacement routed through the same undo/dirty path as UI edits. */
+export class ReplaceRangeCommand implements EditCommand {
+  readonly type = 'replaceRange';
+  readonly timestamp: number;
+  private previousText: string | null = null;
+
+  constructor(
+    private sectionIndex: number,
+    private paragraphIndex: number,
+    private startOffset: number,
+    private length: number,
+    private newText: string,
+    timestamp?: number,
+  ) {
+    this.timestamp = timestamp ?? Date.now();
+  }
+
+  execute(wasm: UniHwpEngine): DocumentPosition {
+    if (this.previousText === null) {
+      this.previousText = wasm.getTextRange(this.sectionIndex, this.paragraphIndex, this.startOffset, this.length);
+    }
+    const result = wasm.replaceRange(this.sectionIndex, this.paragraphIndex, this.startOffset, this.length, this.newText);
+    if (!result.ok) throw new Error('replaceRange failed');
+    return { sectionIndex: this.sectionIndex, paragraphIndex: this.paragraphIndex, charOffset: this.startOffset + (result.newLength ?? engineTextLength(this.newText)) };
+  }
+
+  undo(wasm: UniHwpEngine): DocumentPosition {
+    const previousText = this.previousText ?? '';
+    const result = wasm.replaceRange(this.sectionIndex, this.paragraphIndex, this.startOffset, engineTextLength(this.newText), previousText);
+    if (!result.ok) throw new Error('replaceRange undo failed');
+    return { sectionIndex: this.sectionIndex, paragraphIndex: this.paragraphIndex, charOffset: this.startOffset + engineTextLength(previousText) };
+  }
+
+  mergeWith(): null { return null; }
 }
 
 // ─── 편집 작업 서술자 (라우팅 통합) ────────────────────

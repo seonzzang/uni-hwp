@@ -79,7 +79,7 @@ pub fn write_header(doc: &Document, ctx: &SerializeContext) -> Result<Vec<u8>, S
     super::utils::start_tag(&mut w, "hh:refList")?;
     write_fontfaces(&mut w, &doc.doc_info, ctx)?;
     write_border_fills(&mut w, &doc.doc_info, ctx)?;
-    write_char_properties(&mut w, &doc.doc_info, ctx)?;
+    write_char_properties(&mut w, &doc.doc_info, !doc.sections.is_empty(), ctx)?;
     write_tab_properties(&mut w, &doc.doc_info)?;
     write_numberings(&mut w, &doc.doc_info)?;
     write_bullets(&mut w, &doc.doc_info)?;
@@ -584,10 +584,16 @@ fn color_hex(c: ColorRef) -> String {
 fn write_char_properties<W: Write>(
     w: &mut Writer<W>,
     doc_info: &DocInfo,
+    has_sections: bool,
     ctx: &SerializeContext,
 ) -> Result<(), SerializeError> {
     let _ = ctx;
     if doc_info.char_shapes.is_empty() {
+        if !has_sections { return Ok(()); }
+        let default = CharShape::default();
+        start_tag_attrs(w, "hh:charProperties", &[("itemCnt", "1")])?;
+        write_char_pr(w, 0, &default)?;
+        end_tag(w, "hh:charProperties")?;
         return Ok(());
     }
     start_tag_attrs(

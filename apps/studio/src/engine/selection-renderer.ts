@@ -29,6 +29,7 @@ export class SelectionRenderer {
 
     for (const rect of rects) {
       const div = document.createElement('div');
+      div.className = 'selection-highlight';
       const pageOffset = this.virtualScroll.getPageOffset(rect.pageIndex);
       const pageDisplayWidth = this.virtualScroll.getPageWidth(rect.pageIndex);
       const pageLeft = (contentWidth - pageDisplayWidth) / 2;

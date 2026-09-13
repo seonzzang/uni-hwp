@@ -1,5 +1,5 @@
 import init, { HwpDocument, version } from '@wasm/rhwp.js';
-import type { DocumentInfo, PageInfo, PageDef, SectionDef, CursorRect, HitTestResult, LineInfo, TableDimensions, CellInfo, CellBbox, CellProperties, TableProperties, DocumentPosition, MoveVerticalResult, SelectionRect, CharProperties, ParaProperties, CellPathEntry, NavContextEntry, FieldInfoResult, BookmarkInfo, PageOfPositionResult, ReplaceAllResult, ReplaceResult, SearchResult } from './types';
+import type { DocumentInfo, PageInfo, PageDef, SectionDef, CursorRect, HitTestResult, LineInfo, TableDimensions, CellInfo, CellBbox, CellProperties, TableProperties, DocumentPosition, MoveVerticalResult, SelectionRect, CharProperties, ParaProperties, CellPathEntry, NavContextEntry, FieldInfoResult, BookmarkInfo, PageOfPositionResult, ReplaceAllResult, ReplaceResult, SearchResult, PageHideSettings, PageHideUpdate } from './types';
 import type { ValidationReport } from './wasm-bridge-types';
 import {
   createNewDocumentState,
@@ -338,6 +338,50 @@ export class WasmBridge {
     return setSectionDefPaging(this.parseDocJson.bind(this), sectionIdx, sectionDef);
   }
 
+  /** 현재 문단의 쪽 감추기 설정을 Uni-HWP 엔진 경계로 노출한다. */
+  getPageHide(sectionIndex: number, paragraphIndex: number): PageHideSettings {
+    return this.withDoc((doc) => {
+      const method = (doc as unknown as Record<string, unknown>).getPageHide;
+      if (typeof method !== 'function') return { exists: false };
+      const raw = (method as (section: number, paragraph: number) => unknown).call(doc, sectionIndex, paragraphIndex);
+      if (typeof raw !== 'string') return raw as PageHideSettings;
+      try {
+        return JSON.parse(raw) as PageHideSettings;
+      } catch {
+        return { exists: false };
+      }
+    });
+  }
+
+  /** 현재 문단의 쪽 감추기 설정을 변경한다. */
+  setPageHide(
+    sectionIndex: number,
+    paragraphIndex: number,
+    update: PageHideUpdate,
+  ): PageHideSettings | { ok: false; unsupported: true } {
+    return this.withDoc((doc) => {
+      const method = (doc as unknown as Record<string, unknown>).setPageHide;
+      if (typeof method !== 'function') return { ok: false, unsupported: true };
+      const result = (method as (...args: unknown[]) => unknown).call(
+        doc,
+        sectionIndex,
+        paragraphIndex,
+        update.hideHeader,
+        update.hideFooter,
+        update.hideMasterPage,
+        update.hideBorder,
+        update.hideFill,
+        update.hidePageNum,
+      );
+      if (typeof result !== 'string') return (result ?? { exists: true }) as PageHideSettings;
+      try {
+        return JSON.parse(result) as PageHideSettings;
+      } catch {
+        return { exists: true };
+      }
+    });
+  }
+
   setSectionDefAll(sectionDef: SectionDef): { ok: boolean; pageCount: number } {
     return setSectionDefAllPaging(this.parseDocJson.bind(this), sectionDef);
   }
@@ -396,6 +440,11 @@ export class WasmBridge {
 
   getTextRange(sec: number, para: number, charOffset: number, count: number): string {
     return this.withDoc((doc) => doc.getTextRange(sec, para, charOffset, count));
+  }
+
+  /** Uni-HWP 어댑터의 문단 텍스트 조회 계약. 엔진별 getParaText 이름에 의존하지 않는다. */
+  getParagraphText(sec: number, para: number, maxLength = 200): string {
+    return this.getTextRange(sec, para, 0, maxLength);
   }
 
   getParagraphLength(sec: number, para: number): number {
@@ -622,7 +671,24 @@ export class WasmBridge {
                 imageData: Uint8Array, width: number, height: number,
                 naturalWidthPx: number, naturalHeightPx: number,
                 extension: string, description: string = ''): { ok: boolean; paraIdx: number; controlIdx: number } {
-    return this.parseDocJson((doc) => (doc as any).insertPicture(sec, paraIdx, charOffset, imageData, width, height, naturalWidthPx, naturalHeightPx, extension, description));
+    // 생성 바인딩의 positional API는 cell_path_json 인자가 앞에 추가될 수 있다.
+    // 제품 bridge는 버전에 따라 인자 위치가 달라지는 API를 직접 호출하지 않고,
+    // 공개된 options 어댑터로 정규화한다.
+    const bytes = imageData instanceof Uint8Array ? imageData : new Uint8Array(imageData as ArrayLike<number>);
+    const ext = typeof extension === 'string' && extension ? extension : 'png';
+    const desc = typeof description === 'string' ? description : String(description ?? '');
+    return this.parseDocJson((doc) => {
+      const candidate = doc as any;
+      if (typeof candidate.insertPictureEx === 'function') {
+        return candidate.insertPictureEx(JSON.stringify({
+          sectionIdx: sec, paraIdx, charOffset, cellPath: '', width, height,
+          naturalWidthPx, naturalHeightPx, extension: ext, description: desc,
+        }), bytes);
+      }
+      // 구형 엔진에 대한 제한적 fallback. cell_path_json을 명시해 현재 계약을 지킨다.
+      return candidate.insertPicture(sec, paraIdx, charOffset, '', bytes, width, height,
+        naturalWidthPx, naturalHeightPx, ext, desc);
+    });
   }
 
   // ── 그림 속성 API ─────────────────────────────────────
@@ -1199,8 +1265,27 @@ export class WasmBridge {
     return replaceTextField(this.parseOptionalDocMethodJson.bind(this), sec, para, charOffset, length, newText);
   }
 
+  /** 제품 공개 계약의 범위 치환 명칭. 엔진별 메서드명은 이 경계 안에서만 매핑한다. */
+  replaceRange(sectionIndex: number, paragraphIndex: number, startOffset: number, length: number, newText: string): ReplaceResult {
+    return this.replaceText(sectionIndex, paragraphIndex, startOffset, length, newText);
+  }
+
   replaceAll(query: string, newText: string, caseSensitive: boolean): ReplaceAllResult {
     return replaceAllField(this.parseOptionalDocMethodJson.bind(this), query, newText, caseSensitive);
+  }
+
+  /** 외부 연동용 제품 버전 조회. 엔진 객체나 원본 타입은 반환하지 않는다. */
+  getVersionInfo(): { productName: 'Uni-HWP'; adapterVersion: string; engineVersion: string } {
+    return { productName: 'Uni-HWP', adapterVersion: '1.0.0', engineVersion: version() };
+  }
+
+  /** 현재 어댑터가 제공하는 기능만 안정적인 제품 이름으로 반환한다. */
+  getCapabilities(): { rangeReplace: boolean; fieldAutomation: boolean; progressivePaging: boolean } {
+    return {
+      rangeReplace: true,
+      fieldAutomation: true,
+      progressivePaging: this.supportsProgressivePaging(),
+    };
   }
 
   getPositionOfPage(globalPage: number): { ok: boolean; sec?: number; para?: number; charOffset?: number } {

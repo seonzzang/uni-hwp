@@ -1,0 +1,170 @@
+flowchart TD
+    START["Uni-HWP 통합 업그레이드"] --> BASE
+
+    subgraph FOUNDATION["기준선과 제품 원칙"]
+        BASE["원격 main 최신 HEAD 고정"]
+        BRANCH["codex/uni-hwp-upgrade 브랜치 생성"]
+        COMPARE["로컬 변경 재비교<br/>동등·일부·미반영·대체·확인 필요"]
+        NAMING["Uni-HWP 제품 명칭·경로·공개 API 통일"]
+        LINEAGE["RHWP 출처·MIT 고지·원격 계보 보존"]
+        BASE --> BRANCH --> COMPARE
+        BASE --> NAMING
+        BASE --> LINEAGE
+    end
+
+    subgraph BOUNDARY["엔진 격리와 재현 가능한 빌드"]
+        ADAPTER["Uni-HWP 공개 API"]
+        WASM["내부 엔진 어댑터<br/>WASM 구현"]
+        NATIVE["네이티브 Rust 어댑터<br/>향후 확장"]
+        SOURCE["internal/engine-source<br/>버전 고정 RHWP 소스"]
+        LOCK["태그·커밋·소스 해시·빌드 도구<br/>잠금 정보"]
+        GUARD["직접 엔진 참조·원본 타입 누출<br/>CI 차단 검사"]
+        ADAPTER --> WASM
+        ADAPTER -.-> NATIVE
+        WASM --> SOURCE
+        NATIVE -.-> SOURCE
+        SOURCE --> LOCK
+        ADAPTER --> GUARD
+    end
+
+    subgraph UPDATE["원클릭 엔진 업데이트·복원"]
+        CHECK["최신 안정 릴리스 조회"]
+        SAME{"현재 버전과 동일?"}
+        STAGE["격리 후보 공간에 가져오기<br/>태그·커밋·해시 고정"]
+        BUILD["도구·디스크 검사<br/>엔진·WASM·바인딩 재현 빌드"]
+        VERIFY["API·제품 기능·문서·렌더링·성능<br/>호환성 회귀 검증"]
+        COMPAT{"필수 검사 통과?"}
+        APPLY["소스·산출물·잠금 정보<br/>원자적 적용"]
+        SMOKE["적용 후 실행 검사"]
+        OK{"실행 검사 성공?"}
+        ROLLBACK["이전 엔진·복원 지점으로 복구"]
+        STATUS["engine:status"]
+        CLI["engine:update / engine:rollback"]
+        CHECK --> SAME
+        SAME -->|"예: 변경 없음 종료"| STATUS
+        SAME -->|"아니오"| STAGE --> BUILD --> VERIFY --> COMPAT
+        COMPAT -->|"아니오: 구체적 차단 보고"| STATUS
+        COMPAT -->|"예"| APPLY --> SMOKE --> OK
+        OK -->|"예"| STATUS
+        OK -->|"아니오"| ROLLBACK --> STATUS
+        CLI --> CHECK
+    end
+
+    subgraph SAFETY["업데이트 실패·중단 안전장치"]
+        DIRTY["관리 경로 미커밋 변경 감지"]
+        SINGLE["동시 실행 잠금"]
+        DURABLE["durable 상태·저널·중단 복구"]
+        PRESERVE["실패·취소 시 현재 엔진 유지"]
+        INCOMPLETE["필수 산출물·바인딩·매니페스트 누락 차단"]
+        DIRTY --> PRESERVE
+        SINGLE --> PRESERVE
+        DURABLE --> ROLLBACK
+        INCOMPLETE --> PRESERVE
+    end
+
+    subgraph FEATURES["로컬 개선사항 선별 이식"]
+        RUST["Rust 렌더러·파서 변경<br/>필요 항목만 이식"]
+        RANGE["replaceRange·범위 읽기·치환<br/>버전·기능 조회 공개 API"]
+        RPC["RPC·입력 처리·트랜잭션·복구<br/>undo/redo 정합성"]
+        INCR["incremental-render 스케줄러<br/>분할·예산·무효화·오래된 결과 차단"]
+        HWPX["HWPX 양식 자동화<br/>필드 탐색·읽기·치환"]
+        DPR["픽셀 정렬·DPR 선명도 개선<br/>incremental-render와 별도 검증"]
+        RUST --> RANGE --> RPC --> INCR --> HWPX
+        DPR -.-> INCR
+    end
+
+    subgraph INTEGRATION["Tauri·제품 통합"]
+        TAURI["WASM·Tauri 현재 구성 유지"]
+        NATIVE_GATE["네이티브 전환은 향후 확장"]
+        STUDIO["Studio 독립 실행 통합"]
+        TAURI --> STUDIO
+        NATIVE_GATE -.-> STUDIO
+    end
+
+    subgraph QA["검증 게이트"]
+        DOCQA["HWP/HWPX 열기·저장·재열기<br/>본문·표·이미지·수식·페이지"]
+        EDITQA["범위 치환·undo/redo<br/>트랜잭션 실패·복구·양식 입력"]
+        RENDERQA["연속 입력·문서 교체·크기 변경<br/>오래된 렌더링 결과 차단"]
+        PERFQA["화면·인쇄·PDF 비교<br/>입력 지연·긴 작업·메모리 기준선"]
+        APPQA["Studio 빌드·Windows Tauri 실행·설치<br/>기존 플랫폼 CI"]
+        UPDATEQA["최신·동일·실패·취소·중복·중단·복원<br/>호환·비호환 후보 처리"]
+        GATE{"모든 완료 조건 통과?"}
+        DOCQA --> GATE
+        EDITQA --> GATE
+        RENDERQA --> GATE
+        PERFQA --> GATE
+        APPQA --> GATE
+        UPDATEQA --> GATE
+    end
+
+    subgraph OUTPUT["최종 산출물"]
+        COMMITS["원격 계보 기반 기능별 변경 커밋"]
+        MATRIX["이식 판정표·보류 목록"]
+        API["Uni-HWP 공개 API·내부 어댑터"]
+        TOOL["원클릭 업데이트·복원 도구"]
+        REPORT["기능·렌더링·성능·업데이트 검증 보고서"]
+        GUIDE["운영·엔진 업데이트 안내"]
+    end
+
+    BRANCH --> ADAPTER
+    COMPARE --> RUST
+    NAMING --> ADAPTER
+    LINEAGE --> SOURCE
+    LOCK --> CHECK
+    ADAPTER --> RANGE
+    WASM --> TAURI
+    GUARD --> VERIFY
+    DIRTY --> APPLY
+    SINGLE --> APPLY
+    DURABLE --> APPLY
+    FEATURES --> QA
+    STUDIO --> QA
+    UPDATE --> UPDATEQA
+    GATE -->|"예: 완료 보고·출시 판단"| OUTPUT
+    GATE -->|"아니오: 실패 단계 수정 후 재검증"| FEATURES
+    COMPARE --> MATRIX
+    ADAPTER --> API
+    UPDATE --> TOOL
+    QA --> REPORT
+    SAFETY --> GUIDE
+
+    subgraph PROCESS["통합 개발 프로세스"]
+        P0["P0 원격 main HEAD 고정\n브랜치·작업 범위 확정"]
+        P1["P1 로컬 변경 재비교\n기능별 이식 판정표 작성"]
+        P2["P2 엔진 경계 확립\nUni-HWP API·어댑터·CI 차단"]
+        P3["P3 엔진 업데이트 기반\n후보·잠금·빌드·복원"]
+        P4["P4 기능 이식\nreplaceRange·RPC·복구"]
+        P5["P5 렌더링 이식\nincremental-render·DPR 분리 검증"]
+        P6["P6 HWPX 자동화·Tauri 통합"]
+        P7["P7 전체 QA·릴리스 판정"]
+        DECIDE{"게이트 통과?"}
+        RELEASE["원격 계보 기반 커밋\n문서·검증 보고·출시 판단"]
+        REWORK["실패 원인 연결\n수정 범위 확정 후 재검증"]
+
+        P0 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> DECIDE
+        DECIDE -->|"예"| RELEASE
+        DECIDE -->|"아니오"| REWORK --> P1
+    end
+
+    subgraph SUPERVISION["Codex Desktop A·B·C 운영 루프"]
+        DESKTOP["Codex Desktop\n최종 감독·정책 승인·단계 전환"]
+        A["A · GPT-5.6 Luna\nB/C 상태 감시·재가동"]
+        B["B · GPT-5.6 Luna\n실질 제품 개발"]
+        C["C · GPT-6 Astra\n검토·판단·수정 지시"]
+        HEARTBEAT["Heartbeat\n핸들·파일·테스트 증거 확인"]
+        LOST{"B 또는 C 중단·소실?"}
+        RESTART["동일 역할·모델로 재가동 시도\n실패 시 오케스트레이터 직접 진행"]
+
+        DESKTOP --> A --> HEARTBEAT --> LOST
+        LOST -->|"아니오"| B
+        LOST -->|"아니오"| C
+        LOST -->|"예"| RESTART --> HEARTBEAT
+        B --> C
+        C --> B
+    end
+
+    P0 -.-> DESKTOP
+    A -.-> P1
+    B -.-> P4
+    C -.-> DECIDE
+    RESTART -.-> P1

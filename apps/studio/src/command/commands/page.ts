@@ -351,19 +351,19 @@ export const pageCommands: CommandDef[] = [
       const pos = ih.getPosition();
       try {
         // 현재 문단의 감추기 상태 조회
-        const result = JSON.parse((services.wasm as any).doc.getPageHide(pos.sectionIndex, pos.paragraphIndex));
+        const result = services.wasm.getPageHide(pos.sectionIndex, pos.paragraphIndex);
         if (result.exists) {
           // 이미 감추기 있음 → 토글 (제거)
-          (services.wasm as any).doc.setPageHide(
-            pos.sectionIndex, pos.paragraphIndex,
-            false, false, false, false, false, false,
-          );
+          services.wasm.setPageHide(pos.sectionIndex, pos.paragraphIndex, {
+            hideHeader: false, hideFooter: false, hideMasterPage: false,
+            hideBorder: false, hideFill: false, hidePageNum: false,
+          });
         } else {
           // 감추기 없음 → 쪽 번호 감추기 기본 적용
-          (services.wasm as any).doc.setPageHide(
-            pos.sectionIndex, pos.paragraphIndex,
-            false, false, false, false, false, true,
-          );
+          services.wasm.setPageHide(pos.sectionIndex, pos.paragraphIndex, {
+            hideHeader: false, hideFooter: false, hideMasterPage: false,
+            hideBorder: false, hideFill: false, hidePageNum: true,
+          });
         }
         services.eventBus.emit('document-changed');
       } catch (err) {

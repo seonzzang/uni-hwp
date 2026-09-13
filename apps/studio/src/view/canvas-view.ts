@@ -6,6 +6,7 @@ import { CanvasPool } from './canvas-pool';
 import { PageRenderer } from './page-renderer';
 import { ViewportManager } from './viewport-manager';
 import { CoordinateSystem } from './coordinate-system';
+import { calculateCanvasDpr, getPhysicalCanvasSize } from './dpr';
 
 const DEBUG_PROGRESSIVE_PAGING = import.meta.env.DEV;
 
@@ -395,21 +396,14 @@ export class CanvasView {
     const canvas = this.canvasPool.acquire(pageIdx);
     const zoom = this.viewportManager.getZoom();
     const rawDpr = window.devicePixelRatio || 1;
-
-    // iOS WebKit Canvas 최대 크기 제한 (64MP = 67,108,864 pixels)
-    // 물리 크기 = pageSize × zoom × dpr 가 제한을 초과하면 dpr을 낮춘다
     const pageInfo = this.pages[pageIdx];
-    const MAX_CANVAS_PIXELS = 67108864;
-    let dpr = rawDpr;
-    if (pageInfo) {
-      const physW = pageInfo.width * zoom * dpr;
-      const physH = pageInfo.height * zoom * dpr;
-      if (physW * physH > MAX_CANVAS_PIXELS) {
-        dpr = Math.sqrt(MAX_CANVAS_PIXELS / (pageInfo.width * zoom * pageInfo.height * zoom));
-        dpr = Math.max(1, Math.floor(dpr)); // 최소 1, 정수로 내림
-      }
-    }
+    const dpr = pageInfo ? calculateCanvasDpr(pageInfo, zoom, rawDpr) : Math.max(1, rawDpr);
     const renderScale = zoom * dpr;
+    if (pageInfo) {
+      const physical = getPhysicalCanvasSize(pageInfo, zoom, dpr);
+      canvas.width = physical.width;
+      canvas.height = physical.height;
+    }
 
     // Canvas를 DOM에 추가하고 위치를 설정한다
     canvas.style.top = `${this.virtualScroll.getPageOffset(pageIdx)}px`;
@@ -428,16 +422,18 @@ export class CanvasView {
 
     // WASM이 Canvas 크기를 자동 설정한다 (물리 픽셀 = 페이지크기 × zoom × DPR)
     try {
-      this.pageRenderer.renderPage(pageIdx, canvas, renderScale, pageInfo);
+      this.pageRenderer.renderPage(pageIdx, canvas, renderScale, pageInfo, 'visible');
     } catch (e) {
       console.error(`[CanvasView] 페이지 ${pageIdx} 렌더링 실패:`, e);
       this.canvasPool.release(pageIdx);
       return;
     }
 
-    // CSS 표시 크기 = 물리 픽셀 / DPR (= 페이지크기 × zoom)
-    canvas.style.width = `${canvas.width / dpr}px`;
-    canvas.style.height = `${canvas.height / dpr}px`;
+    // CSS 표시 크기는 렌더 완료 콜백에서도 다시 맞춘다.
+    if (canvas.width > 0 && canvas.height > 0) {
+      canvas.style.width = `${canvas.width / dpr}px`;
+      canvas.style.height = `${canvas.height / dpr}px`;
+    }
   }
 
   /** 뷰포트 리사이즈 처리 */

@@ -134,7 +134,8 @@ log('렌더링 완료');
 </div>
 
 <script type="module">
-import init, { HwpDocument } from '../pkg/rhwp.js';
+import init, { HwpDocument } from '@wasm/rhwp.js';
+import wasmUrl from '@wasm/rhwp_bg.wasm?url';
 
 const logEl = document.getElementById('log');
 const statsEl = document.getElementById('stats');
@@ -186,18 +187,23 @@ window.render = function(pageNum = 0) {
 
 // hwpctl 모듈 동적 import
 let HwpCtrl = null;
+// fixture contract: callers wait for initialization instead of dereferencing a
+// transiently absent global while the WASM adapter is loading.
+window.HwpCtrlReady = null;
+window.HwpCtrlInitError = null;
 
 async function initialize() {
   try {
     statusEl.textContent = 'WASM 초기화 중...';
-    await init();
+    await init(wasmUrl);
 
     // hwpctl 모듈 로드
-    const { createHwpCtrl } = await import('./src/hwpctl/index.ts');
+    const { createHwpCtrlFixture } = await import('./src/hwpctl/index.ts');
     wasmDoc = HwpDocument.createEmpty();
     wasmDoc.createBlankDocument();
 
-    HwpCtrl = await createHwpCtrl({ wasmModule: wasmDoc });
+    window.HwpCtrlReady = createHwpCtrlFixture({ wasmModule: wasmDoc });
+    HwpCtrl = (await window.HwpCtrlReady).ctrl;
     window.HwpCtrl = HwpCtrl;
 
     const total = HwpCtrl.constructor.getRegisteredActionCount();
@@ -208,6 +214,8 @@ async function initialize() {
     log('hwpctl 호환 레이어 초기화 완료', 'info');
     log(`등록 Action: ${total}개, 구현: ${impl}개`, 'info');
   } catch (e) {
+    window.HwpCtrlInitError = String(e?.message || e);
+    window.HwpCtrlReady = Promise.resolve({ ctrl: null, ready: false, error: window.HwpCtrlInitError });
     statusEl.textContent = '초기화 실패: ' + e.message;
     log('초기화 실패: ' + e.message, 'err');
     console.error(e);

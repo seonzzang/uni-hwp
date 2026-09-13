@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "check:engine-boundary": "node ../../tools/engine-boundary/check-boundary.mjs",
+    "test:unit": "tsx --tsconfig tsconfig.json --test src/app/embedded-api.test.ts src/engine/command.test.ts src/engine/history.test.ts src/engine-boundary/uni-hwp-engine.test.ts src/view/page-renderer.test.ts src/core/wasm-bridge-p7.test.ts",
+    "e2e:all": "node e2e/run-all.mjs",
     "preview": "vite preview",
     "e2e": "node e2e/text-flow.test.mjs"
   },
@@ -14,6 +17,7 @@
     "@types/pdfkit": "^0.17.6",
     "@types/svg-to-pdfkit": "^0.1.4",
     "puppeteer-core": "^24.40.0",
+    "tsx": "^4.23.3",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"
   },

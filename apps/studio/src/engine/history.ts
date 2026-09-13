@@ -48,20 +48,26 @@ export class CommandHistory {
 
   /** Undo — 성공 시 커서 위치 반환, 스택 비었으면 null */
   undo(wasm: UniHwpEngine): DocumentPosition | null {
-    const command = this.undoStack.pop();
+    const command = this.undoStack[this.undoStack.length - 1];
     if (!command) return null;
 
     const cursorAfter = command.undo(wasm);
+    // Keep the source entry until the engine operation succeeds.  A thrown
+    // WASM exception must leave history retryable and must not move the
+    // command to the opposite stack.
+    this.undoStack.pop();
     this.redoStack.push(command);
     return cursorAfter;
   }
 
   /** Redo — 성공 시 커서 위치 반환, 스택 비었으면 null */
   redo(wasm: UniHwpEngine): DocumentPosition | null {
-    const command = this.redoStack.pop();
+    const command = this.redoStack[this.redoStack.length - 1];
     if (!command) return null;
 
     const cursorAfter = command.execute(wasm);
+    // As with undo, mutate the stacks only after the engine confirms success.
+    this.redoStack.pop();
     this.undoStack.push(command);
     return cursorAfter;
   }

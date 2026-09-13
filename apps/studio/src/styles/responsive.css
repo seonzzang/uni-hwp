@@ -88,7 +88,7 @@
 
   /* ── 도구 상자: 숨김 (모바일에서는 컨텍스트 메뉴로 대체) ── */
   #icon-toolbar {
-    display: none;
+    display: none !important;
   }
 
   /* ── 서식 도구 모음: 가로 스크롤 + 터치 타겟 확대 ── */

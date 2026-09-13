@@ -13,6 +13,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows console/code-page defaults are commonly cp949. The verifier emits
+# fixture text and failure details, so force UTF-8 independently of the
+# caller's shell environment (PYTHONIOENCODING alone is not sufficient when
+# stdout/stderr were already initialized).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parents[1]
 VERIFY = ROOT / "tools" / "verify_hwpx.py"
 

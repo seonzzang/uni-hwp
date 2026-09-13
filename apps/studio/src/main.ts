@@ -113,5 +113,6 @@ void installWindowCloseGuard({
 });
 installEmbeddedApi({
   wasm,
+  getInputHandler: () => inputHandler,
   documentLifecycle,
 });

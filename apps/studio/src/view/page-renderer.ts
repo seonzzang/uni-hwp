@@ -1,15 +1,37 @@
 import type { UniHwpEngine } from '@/engine-boundary/uni-hwp-engine';
 import type { PageInfo } from '@/core/types';
+import { IncrementalRenderScheduler, type FrameDriver, type RenderPriority } from './incremental-render-scheduler';
 
 export class PageRenderer {
   private reRenderTimers = new Map<number, ReturnType<typeof setTimeout>[]>();
+  /** Invalidates delayed work when the document, zoom, or viewport changes. */
+  private renderGeneration = 0;
+  readonly scheduler: IncrementalRenderScheduler;
 
-  constructor(private wasm: UniHwpEngine) {}
+  constructor(
+    private wasm: UniHwpEngine,
+    options: { frameBudgetMs?: number; now?: () => number; frameDriver?: FrameDriver } = {},
+  ) {
+    this.scheduler = new IncrementalRenderScheduler(options.frameBudgetMs, options.now, options.frameDriver);
+  }
 
   /** 페이지를 Canvas에 렌더링한다 (scale = zoom × DPR) */
-  renderPage(pageIdx: number, canvas: HTMLCanvasElement, scale: number, pageInfo?: PageInfo): void {
-    this.wasm.renderPageToCanvas(pageIdx, canvas, scale);
-    this.drawMarginGuides(pageIdx, canvas, scale, pageInfo);
+  renderPage(
+    pageIdx: number,
+    canvas: HTMLCanvasElement,
+    scale: number,
+    pageInfo?: PageInfo,
+    priority: RenderPriority = 'visible',
+    onRendered?: () => void,
+  ): void {
+    this.cancelReRender(pageIdx);
+    this.scheduler.enqueue(pageIdx, () => {
+      // Generation is checked by the scheduler immediately before this call;
+      // stale tasks therefore cannot publish a result into a newer layout.
+      this.wasm.renderPageToCanvas(pageIdx, canvas, scale);
+      this.drawMarginGuides(pageIdx, canvas, scale, pageInfo);
+      onRendered?.();
+    }, priority);
     this.scheduleReRender(pageIdx, canvas, scale, pageInfo);
   }
 
@@ -65,16 +87,20 @@ export class PageRenderer {
    * 200ms, 600ms 두 번 재시도하여 대부분의 이미지 로드를 커버한다.
    */
   private scheduleReRender(pageIdx: number, canvas: HTMLCanvasElement, scale: number, pageInfo?: PageInfo): void {
-    this.cancelReRender(pageIdx);
+    const generation = this.renderGeneration;
 
     const delays = [200, 600];
     const timers: ReturnType<typeof setTimeout>[] = [];
 
     for (const delay of delays) {
       const timer = setTimeout(() => {
-        if (canvas.parentElement) {
-          this.wasm.renderPageToCanvas(pageIdx, canvas, scale);
-          this.drawMarginGuides(pageIdx, canvas, scale, pageInfo);
+        // A delayed image pass must never publish into a canvas belonging to a
+        // newer document/layout generation.
+        if (generation === this.renderGeneration && canvas.parentElement) {
+          this.scheduler.enqueue(pageIdx, () => {
+            this.wasm.renderPageToCanvas(pageIdx, canvas, scale);
+            this.drawMarginGuides(pageIdx, canvas, scale, pageInfo);
+          }, 'background');
         }
       }, delay);
       timers.push(timer);
@@ -84,6 +110,7 @@ export class PageRenderer {
 
   /** 특정 페이지의 지연 재렌더링을 취소한다 */
   cancelReRender(pageIdx: number): void {
+    this.scheduler.cancel(pageIdx);
     const timers = this.reRenderTimers.get(pageIdx);
     if (timers) {
       for (const t of timers) clearTimeout(t);
@@ -93,6 +120,8 @@ export class PageRenderer {
 
   /** 모든 지연 재렌더링을 취소한다 */
   cancelAll(): void {
+    this.renderGeneration += 1;
+    this.scheduler.invalidate();
     for (const timers of this.reRenderTimers.values()) {
       for (const t of timers) clearTimeout(t);
     }

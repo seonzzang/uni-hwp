@@ -1511,6 +1511,21 @@ export class InputHandler {
         this.selectionRenderer.clear();
         return;
       }
+      // 일부 엔진 버전은 줄 끝 offset을 커서 위치로 해석하지만 selection
+      // rectangle을 반환하지 않는다. 선택 자체를 버리지 않고 body cursor
+      // geometry로 최소한의 안정적인 highlight를 복구한다.
+      if ((!rects || rects.length === 0) && !startInCell && !endInCell &&
+          CursorState.comparePositions(start, end) !== 0) {
+        const startRect = this.wasm.getCursorRect(start.sectionIndex, start.paragraphIndex, start.charOffset);
+        const endRect = this.wasm.getCursorRect(end.sectionIndex, end.paragraphIndex, end.charOffset);
+        rects = [{
+          pageIndex: startRect.pageIndex,
+          x: Math.min(startRect.x, endRect.x),
+          y: startRect.y,
+          width: Math.max(Math.abs(endRect.x - startRect.x), 4),
+          height: Math.max(startRect.height, endRect.height),
+        }];
+      }
       this.selectionRenderer.render(rects, zoom);
     } catch (e) {
       console.warn('[InputHandler] getSelectionRects 실패:', e);
@@ -1838,6 +1853,11 @@ export class InputHandler {
   /** 편집 완료 후 렌더링 갱신 */
   triggerAfterEdit(): void {
     this.afterEdit();
+  }
+
+  /** Shift+End을 외부 fixture도 키보드 경로와 동일하게 실행할 수 있게 한다. */
+  handleShiftEnd(): void {
+    _keyboard.handleShiftEnd.call(this);
   }
 
   exitPictureObjectSelectionAndAfterEdit(): void {

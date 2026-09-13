@@ -161,6 +161,12 @@ impl SerializeContext {
         for (idx, _) in doc.doc_info.char_shapes.iter().enumerate() {
             ctx.char_shape_ids.register(idx as u32);
         }
+        // 섹션이 있는 문서는 char_shapes 목록이 없어도 section writer가
+        // 암묵 기본 run(charPrIDRef=0)을 방출할 수 있다. header writer가 같은
+        // 조건에서 기본 charPr를 방출하므로 이 경계에서만 0을 등록한다.
+        if !doc.sections.is_empty() && doc.doc_info.char_shapes.is_empty() {
+            ctx.char_shape_ids.register(0);
+        }
         for (idx, _) in doc.doc_info.para_shapes.iter().enumerate() {
             ctx.para_shape_ids.register(idx as u16);
         }
