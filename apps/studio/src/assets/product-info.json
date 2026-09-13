@@ -1,6 +1,7 @@
 {
   "productName": "Uni HWP",
-  "version": "8.1.102",
+  "version": "8.6.0",
+  "engineVersion": "0.8.6",
   "manufacturer": {
     "nameKr": "Uni-HWP Studio",
     "nameEn": "Uni-HWP Studio",
@@ -11,7 +12,7 @@
     "opensource": {
       "title": "\uc624\ud508\uc18c\uc2a4 \ub77c\uc774\uc120\uc2a4",
       "rhwp": {
-        "kr": "\ubcf8 \uc81c\ud488\uc740 \uc624\ud508\uc18c\uc2a4 \ud504\ub85c\uc81d\ud2b8 rhwp\ub97c \uae30\ubc18\uc73c\ub85c \uace0\ub3c4\ud654\ub418\uc5c8\uc2b5\ub2c8\ub2e4.",
+        "kr": "\ubcf8 \uc81c\ud488\uc740 \uc624\ud508\uc18c\uc2a4 \ud504\ub85c\uc81d\ud2b8 rhwp\ub97c \uae30\ubc18\uc73c\ub85c \ud55c \uace0\ub3c4\ud654 \ud504\ub85c\uc81d\ud2b8\uc785\ub2c8\ub2e4.",
         "en": "This product has been advanced based on the open-source project rhwp.",
         "author": "rhwp",
         "url": "https://github.com/edwardkim/rhwp"

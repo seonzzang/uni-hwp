@@ -82,3 +82,6 @@ apps/safari-extension/.DS_Store
 
 # Local run artifacts
 /Release_Temp/
+# Local RHWP update candidates, rollback journals, and Python test caches.
+tools/engine-update/state/
+tools/engine-update/__pycache__/

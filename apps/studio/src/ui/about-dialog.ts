@@ -8,6 +8,7 @@
  */
 import { ModalDialog } from './dialog';
 import { open } from '@tauri-apps/plugin-shell';
+import { invoke } from '@tauri-apps/api/core';
 import productData from '../assets/product-info.json';
 
 export class AboutDialog extends ModalDialog {
@@ -91,7 +92,7 @@ export class AboutDialog extends ModalDialog {
       ${renderHeader(1, '제품 및 제조사 정보')}
       <div style="margin-left: 4px; margin-bottom: 24px;">
         <div style="margin-bottom: 4px;">${trans('제품명 Product:', productData.productName)}</div>
-        <div style="margin-bottom: 4px;">${trans('버전 Version:', productData.version)}</div>
+        <div id="product-version-line" style="margin-bottom: 4px;">${trans('버전 Version:', productData.version)}</div>
         <div style="margin-bottom: 4px;">
           ${trans('제조사 Manufacturer:', '')}
           <a href="#" id="uni-hwp-home" style="color: #4c6ef5; text-decoration: underline; font-weight: 600;">${productData.manufacturer.nameKr}</a>
@@ -157,6 +158,57 @@ export class AboutDialog extends ModalDialog {
       </div>
     `;
     body.appendChild(scrollBox);
+
+    // The installed engine pointer is authoritative after an automatic
+    // update. Refresh the displayed product version without waiting for the
+    // user to press UPDATE 확인.
+    void invoke<{ engine_version: string | null; product_version: string | null }>('get_installed_engine_release')
+      .then((installed) => {
+        if (!installed.product_version) return;
+        versionDisplay.textContent = `VERSION ${installed.product_version}`;
+        const productVersionLine = scrollBox.querySelector('#product-version-line');
+        if (productVersionLine) {
+          productVersionLine.innerHTML = trans('버전 Version:', installed.product_version);
+        }
+      })
+      .catch(() => {
+        // The static product-info.json remains the fallback for browser mode.
+      });
+
+    const updateButton = document.createElement('button');
+    updateButton.type = 'button';
+    updateButton.textContent = 'UPDATE 확인';
+    updateButton.style.marginTop = '16px';
+    updateButton.style.padding = '8px 18px';
+    updateButton.style.border = '1px solid #4c6ef5';
+    updateButton.style.borderRadius = '6px';
+    updateButton.style.background = '#fff';
+    updateButton.style.color = '#4c6ef5';
+    updateButton.style.cursor = 'pointer';
+    updateButton.addEventListener('click', async () => {
+      updateButton.disabled = true;
+      updateButton.textContent = '확인 중...';
+      try {
+        const result = await invoke<{ tag: string; is_newer: boolean; product_version: string }>('check_latest_engine_release', {
+          currentTag: `v${productData.engineVersion}`,
+        });
+        if (!result.is_newer) {
+          updateButton.textContent = `최신 엔진 ${result.tag} 사용 중`;
+        } else {
+          updateButton.textContent = `업데이트 준비 중... (${result.tag})`;
+          const update = await invoke<{ stage: string; message: string }>('run_engine_update');
+          updateButton.textContent = update.stage === 'applied'
+            ? `RHWP ${result.tag} 업데이트 완료`
+            : `업데이트 차단: ${update.message}`;
+        }
+      } catch (error) {
+        updateButton.textContent = '업데이트 확인 실패';
+        console.error('[engine-update]', error);
+      } finally {
+        updateButton.disabled = false;
+      }
+    });
+    body.appendChild(updateButton);
 
     // 하이퍼링크 모듈화
     const setupLink = (id: string, url: string) => {

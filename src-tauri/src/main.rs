@@ -6,6 +6,7 @@
 mod print_worker;
 mod print_job;
 mod remote_hwp;
+mod engine_update;
 
 fn main() {
     tauri::Builder::default()
@@ -25,7 +26,10 @@ fn main() {
             print_worker::debug_cancel_print_worker_pdf_export,
             print_worker::debug_open_generated_pdf,
             remote_hwp::resolve_remote_hwp_url,
-            remote_hwp::cleanup_remote_hwp_temp_path
+            remote_hwp::cleanup_remote_hwp_temp_path,
+            engine_update::check_latest_engine_release,
+            engine_update::get_installed_engine_release,
+            engine_update::run_engine_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

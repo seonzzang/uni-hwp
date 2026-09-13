@@ -1,6 +1,77 @@
 import type { PrintRangeRequest } from '@/core/types';
 import { getPdfRuntime } from './pdf-runtime';
 
+// svg-to-pdfkit은 SVG의 CSS font-family를 PDF 기본 글꼴로만 해석한다.
+// PDF 기본 글꼴에는 한글 글리프가 없으므로, 배포 번들에 포함한 Noto Sans KR TTF를
+// PDFKit에 등록하고 SVG의 모든 본문 글꼴을 이 임베디드 글꼴로 매핑한다.
+const PDF_REGULAR_FONT_URL = new URL(
+  '../../../../ttfs/opensource/NotoSansKR-Regular.ttf',
+  import.meta.url,
+).href;
+const PDF_BOLD_FONT_URL = new URL(
+  '../../../../ttfs/opensource/NotoSansKR-Regular.ttf',
+  import.meta.url,
+).href;
+const PDF_REGULAR_FONT_NAME = 'UniHwpSans';
+const PDF_BOLD_FONT_NAME = 'UniHwpSans-Bold';
+
+type PdfDocument = InstanceType<typeof import('pdfkit')>;
+
+let pdfFontBytesPromise: Promise<{
+  regular: Uint8Array;
+  bold: Uint8Array;
+}> | null = null;
+
+function loadPdfFontBytes(): Promise<{ regular: Uint8Array; bold: Uint8Array }> {
+  if (!pdfFontBytesPromise) {
+    pdfFontBytesPromise = Promise.all([
+      fetch(PDF_REGULAR_FONT_URL),
+      fetch(PDF_BOLD_FONT_URL),
+    ]).then(async ([regularResponse, boldResponse]) => {
+      if (!regularResponse.ok || !boldResponse.ok) {
+        throw new Error(
+          `한글 PDF 글꼴을 불러올 수 없습니다 (${regularResponse.status}/${boldResponse.status}).`,
+        );
+      }
+      const [regular, bold] = await Promise.all([
+        regularResponse.arrayBuffer(),
+        boldResponse.arrayBuffer(),
+      ]);
+      return {
+        regular: new Uint8Array(regular),
+        bold: new Uint8Array(bold),
+      };
+    }).catch((error) => {
+      pdfFontBytesPromise = null;
+      throw error;
+    });
+  }
+  return pdfFontBytesPromise;
+}
+
+async function registerPdfKoreanFonts(doc: PdfDocument): Promise<void> {
+  const { regular, bold } = await loadPdfFontBytes();
+  doc.registerFont(PDF_REGULAR_FONT_NAME, regular);
+  doc.registerFont(PDF_BOLD_FONT_NAME, bold);
+}
+
+function pdfFontCallback(
+  _family: string,
+  bold: boolean,
+  italic: boolean,
+  fontOptions: { fauxItalic?: boolean },
+): string {
+  if (italic) {
+    // PDFKit/svg-to-pdfkit이 등록된 정자체를 기울여 그리는 faux italic을 사용한다.
+    fontOptions.fauxItalic = true;
+  }
+  if (bold) {
+    // 현재 번들에는 정자체 TTF만 있으므로 PDFKit의 faux-bold를 사용한다.
+    (fontOptions as { fauxBold?: boolean }).fauxBold = true;
+  }
+  return bold ? PDF_BOLD_FONT_NAME : PDF_REGULAR_FONT_NAME;
+}
+
 export interface PdfExportProgress {
   completedPages: number;
   totalPages: number;
@@ -119,6 +190,7 @@ export class PdfExportManager {
       compress: true,
       margin: 0,
     });
+    await registerPdfKoreanFonts(doc);
     const chunks: ArrayBuffer[] = [];
 
     return await new Promise<Blob>((resolve, reject) => {
@@ -177,6 +249,7 @@ export class PdfExportManager {
                 width,
                 height,
                 preserveAspectRatio: 'xMinYMin meet',
+                fontCallback: pdfFontCallback,
               });
             }
 

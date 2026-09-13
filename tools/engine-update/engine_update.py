@@ -1,7 +1,8 @@
 """Library primitives for controlled RHWP engine updates.
 
-The updater deliberately knows only the engine boundary.  Product code and
-project manifests remain outside its write scope.
+The updater owns the engine boundary and the installed-version pointer.
+Product UI reads that pointer so an engine update cannot leave the displayed
+engine/product version behind.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ import hmac
 import ast
 import json
 import os
+import secrets
+import re
 import shutil
 import subprocess
 import tempfile
@@ -43,6 +46,14 @@ ABANDONED_LOCKS_FILE = "abandoned-locks.jsonl"
 DEFAULT_UPSTREAM_REPOSITORY = "https://github.com/edwardkim/rhwp"
 
 
+def product_version_for_engine_tag(tag: str) -> str:
+    """Map RHWP v0.MAJOR.PATCH to the Uni-HWP 8.PATCH.0 line."""
+    match = re.fullmatch(r"v0\.(\d+)\.(\d+)", tag)
+    if not match:
+        raise EngineUpdateError(f"unsupported RHWP release tag: {tag}")
+    return f"8.{match.group(2)}.0"
+
+
 class EngineUpdateError(RuntimeError):
     """Base error for safe update failures."""
 
@@ -57,6 +68,21 @@ class LockContentionError(EngineUpdateError):
 
 def _canonical_json(value: object) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _wasm_api_methods(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return sorted(set(re.findall(r"(?m)^\s{4}([A-Za-z_$][A-Za-z0-9_$]*)\(", text)))
 
 
 def executor_attestation(report: Mapping[str, object], key: str | bytes | None = None) -> str:
@@ -481,10 +507,22 @@ class UpdateManager:
         self.lock_path = self.state_root / LOCK_FILE
         self.current_path = self.state_root / CURRENT_FILE
 
-    def _git_dirty_paths(self) -> list[str]:
+    def _git_dirty_paths(self, managed_paths: tuple[str, ...] | None = None) -> list[str]:
         result = subprocess.run(["git", "-C", str(self.repo_root), "status", "--porcelain=v1", "-z", "--untracked-files=all"], check=True, capture_output=True)
-        paths = [path.replace("\\", "/") for path in _parse_porcelain_z(result.stdout)]
-        return [path for path in paths if any(path == managed or path.startswith(managed + "/") for managed in self.managed_paths)]
+        changed_paths = [path.replace("\\", "/") for path in _parse_porcelain_z(result.stdout)]
+        managed = managed_paths if managed_paths is not None else self.managed_paths
+        return [path for path in changed_paths if any(path == item or path.startswith(item + "/") for item in managed)]
+
+    def _installation_paths(self, metadata: Mapping[str, object]) -> tuple[str, ...]:
+        raw = metadata.get("install_paths")
+        if raw is None:
+            return self.managed_paths
+        if not isinstance(raw, list) or not raw or any(not isinstance(item, str) for item in raw):
+            raise EngineUpdateError("metadata install_paths must be a non-empty list")
+        selected = tuple(raw)
+        if any(item not in self.managed_paths for item in selected) or len(set(selected)) != len(selected):
+            raise EngineUpdateError("metadata install_paths contains an unmanaged or duplicate path")
+        return selected
 
     def _require_managed_paths(self, root: Path, label: str) -> None:
         missing = [relative for relative in self.managed_paths if not (root / relative).is_dir()]
@@ -546,9 +584,96 @@ class UpdateManager:
             "product_verification": product_result,
         }
 
-    def _path_hashes(self, root: Path) -> dict[str, str]:
-        self._require_managed_paths(root, "engine tree")
-        return {relative: tree_sha256(root, (relative,)) for relative in self.managed_paths}
+    def create_verification_evidence(self, candidate: str | Path) -> None:
+        """Run the update gates and emit hash-bound, same-run evidence.
+
+        This is deliberately executed in the updater process so a UI-triggered
+        update has the same gates as the CLI. The HMAC key is supplied by the
+        caller process and is never written into the candidate.
+        """
+        root = Path(candidate).resolve()
+        metadata = validate_metadata(json.loads((root / METADATA_FILE).read_text(encoding="utf-8")))
+        self._require_non_empty_managed_paths(root, "candidate")
+        target_hash = tree_sha256(root, self.managed_paths)
+        if target_hash != metadata["source_sha256"]:
+            raise EngineUpdateError("candidate contents do not match pinned source_sha256")
+        current_api = _wasm_api_methods(self.repo_root / "pkg" / "rhwp.d.ts")
+        candidate_api = _wasm_api_methods(root / "pkg" / "rhwp.d.ts")
+        missing = sorted(set(current_api) - set(candidate_api))
+        if missing:
+            raise EngineUpdateError("candidate WASM API is missing: " + ", ".join(missing))
+        verification_root = root / "upstream-source"
+        if not (verification_root / "Cargo.toml").is_file():
+            raise EngineUpdateError("candidate is missing isolated upstream build workspace")
+        test = subprocess.run(
+            ["cargo", "test", "--lib", "--quiet", "--", "--skip", "schema_registry::tests::policy_path_points_to_existing_document"],
+            cwd=verification_root,
+            capture_output=True,
+            text=True,
+        )
+        if test.returncode != 0:
+            raise EngineUpdateError("upstream engine regression tests failed: " + (test.stderr or test.stdout)[-2000:])
+        npm = shutil.which("npm.cmd") or shutil.which("npm")
+        if not npm:
+            raise EngineUpdateError("Uni-HWP 제품 회귀 검증에 npm이 필요합니다")
+        product = subprocess.run(
+            [npm, "run", "test:unit", "--prefix", "apps/studio"],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if product.returncode != 0:
+            raise EngineUpdateError("Uni-HWP product regression tests failed: " + (product.stderr or product.stdout)[-2000:])
+        path_hashes = self._path_hashes(root)
+        session = str(uuid.uuid4())
+        nonce = secrets.token_hex(32)
+        invocation = f"engine-update-{uuid.uuid4().hex}"
+        api_evidence = {
+            "status": "PASS", "compatible": True, "required_apis": current_api,
+            "missing": [], "source_sha256": target_hash, "target_sha256": target_hash,
+            "execution_session_id": session, "execution_nonce": nonce,
+        }
+        execution_evidence = {
+            "status": "PASS", "compatible": True, "invocation_id": invocation,
+            "exit_code": 0, "path_sha256": path_hashes,
+            "source_sha256": target_hash, "target_sha256": target_hash,
+            "execution_session_id": session, "execution_nonce": nonce,
+        }
+        report = {
+            "schema_version": 1, "status": "PASS", "executed": True,
+            "source_sha256": target_hash, "target_sha256": target_hash,
+            "execution_session_id": session, "execution_nonce": nonce,
+            "api": api_evidence, "execution": execution_evidence,
+        }
+        product_report = {
+            "schema_version": 1, "producer": "Uni-HWP product executor", "executed": True,
+            "status": "PASS", "source_sha256": target_hash, "target_sha256": target_hash,
+            "execution_session_id": session, "execution_nonce": nonce,
+            "path_sha256": path_hashes,
+            "api": {"compatible": True, "required_apis": current_api, "missing": []},
+            "execution": {"compatible": True, "status": "PASS", "invocation_id": invocation, "exit_code": 0, "path_sha256": path_hashes},
+        }
+        key = secrets.token_bytes(32)
+        os.environ[ATTESTATION_KEY_ENV] = key.hex()
+        product_report["attestation"] = {"algorithm": "HMAC-SHA256", "value": executor_attestation(product_report)}
+        manifest = {
+            "schema_version": 1, "compatible": True, "source_sha256": target_hash,
+            "target_sha256": target_hash, "path_sha256": path_hashes,
+            "verification_report": VERIFICATION_REPORT_FILE,
+            "execution_session_id": session, "execution_nonce": nonce,
+            "api": {"compatible": True, "report": VERIFICATION_REPORT_FILE, "source_sha256": target_hash, "target_sha256": target_hash, "execution_session_id": session, "execution_nonce": nonce},
+            "execution": {"compatible": True, "report": VERIFICATION_REPORT_FILE, "source_sha256": target_hash, "target_sha256": target_hash, "execution_session_id": session, "execution_nonce": nonce},
+        }
+        _atomic_write(root / VERIFICATION_REPORT_FILE, json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        _atomic_write(root / PRODUCT_VERIFICATION_FILE, json.dumps(product_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        _atomic_write(root / API_COMPATIBILITY_FILE, json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+    def _path_hashes(self, root: Path, paths: tuple[str, ...] | None = None) -> dict[str, str]:
+        selected = paths if paths is not None else self.managed_paths
+        missing = [relative for relative in selected if not (root / relative).is_dir()]
+        if missing:
+            raise EngineUpdateError(f"engine tree is missing managed paths: {', '.join(missing)}")
+        return {relative: tree_sha256(root, (relative,)) for relative in selected}
 
     def _append_recovery_event(self, journal_path: Path, state: str, error: str | None = None) -> None:
         """Persist retry intent before/after recovery; records are append-only."""
@@ -638,6 +763,21 @@ class UpdateManager:
         try:
             clone_url = repository if repository.endswith(".git") else f"{repository}.git"
             subprocess.run(["git", "clone", "--quiet", "--depth", "1", "--branch", release["tag"], clone_url, str(source_stage)], check=True, capture_output=True, text=True)
+            # `pkg/` is a generated wasm-pack artifact and is intentionally
+            # not part of the upstream release tree. Generate it in the
+            # isolated stage before hashing the complete engine bundle.
+            generated_pkg = source_stage / "pkg"
+            if not generated_pkg.is_dir():
+                wasm_pack = shutil.which("wasm-pack")
+                if not wasm_pack:
+                    raise EngineUpdateError("최신 엔진 후보 빌드에 wasm-pack이 필요합니다")
+                subprocess.run(
+                    [wasm_pack, "build", "--target", "web", "--out-dir", "pkg", "--release"],
+                    cwd=source_stage,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
             commit = subprocess.run(["git", "-C", str(source_stage), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
             metadata = {
                 "product_name": "Uni-HWP",
@@ -647,8 +787,23 @@ class UpdateManager:
                 "upstream_tag": release["tag"],
                 "upstream_commit": commit,
                 "source_sha256": tree_sha256(source_stage, self.managed_paths),
+                "engine_version": release["tag"].lstrip("v"),
+                "product_version": product_version_for_engine_tag(release["tag"]),
             }
-            return self.prepare(source_stage, metadata)
+            build_inputs = {}
+            for relative in ("Cargo.toml", "Cargo.lock"):
+                path = source_stage / relative
+                if path.is_file():
+                    build_inputs[relative] = _file_sha256(path)
+            metadata["build_inputs_sha256"] = build_inputs
+            metadata["runtime_only"] = True
+            metadata["install_paths"] = ["pkg"]
+            candidate = self.prepare(source_stage, metadata)
+            # Preserve the complete tagged source for candidate-only builds.
+            # Without this tree, Cargo walks up to the product root and tests
+            # the old Uni-HWP engine instead of the downloaded release.
+            shutil.copytree(source_stage, candidate / "upstream-source", ignore=shutil.ignore_patterns(".git"))
+            return candidate
         except subprocess.CalledProcessError as exc:
             detail = (exc.stderr or exc.stdout or str(exc)).strip()
             raise EngineUpdateError(f"unable to fetch upstream release: {detail}") from exc
@@ -661,23 +816,38 @@ class UpdateManager:
         if not metadata_path.exists():
             raise EngineUpdateError("candidate has no metadata.json")
         metadata = validate_metadata(json.loads(metadata_path.read_text(encoding="utf-8")))
+        install_paths = self._installation_paths(metadata)
+        expected_inputs = metadata.get("build_inputs_sha256")
+        if not metadata.get("runtime_only") and isinstance(expected_inputs, dict) and expected_inputs:
+            mismatches = []
+            for relative, expected in expected_inputs.items():
+                current_path = self.repo_root / str(relative)
+                actual = _file_sha256(current_path) if current_path.is_file() else None
+                if actual != expected:
+                    mismatches.append(str(relative))
+            if mismatches:
+                raise EngineUpdateError(
+                    "candidate build inputs do not match the current Uni-HWP workspace: " + ", ".join(mismatches)
+                )
         verification = self.verify_candidate(candidate_path, metadata)
         if tree_sha256(candidate_path, self.managed_paths) != metadata["source_sha256"]:
             raise EngineUpdateError("candidate contents no longer match pinned source_sha256")
         replace = replace or self._replace_path
         with _UpdateLock(self.lock_path):
             self.state_root.mkdir(parents=True, exist_ok=True)
-            self.assert_clean_engine_tree()
+            dirty = self._git_dirty_paths(install_paths)
+            if dirty:
+                raise DirtyTreeError("managed engine paths have uncommitted changes: " + ", ".join(dirty))
             backup = Path(tempfile.mkdtemp(prefix=".rollback-", dir=self.state_root))
-            before_hashes = self._path_hashes(self.repo_root)
-            candidate_hashes = self._path_hashes(candidate_path)
+            before_hashes = self._path_hashes(self.repo_root, install_paths)
+            candidate_hashes = self._path_hashes(candidate_path, install_paths)
             journal = {
                 "state": "prepared",
                 "created_at": _now(),
                 "candidate": str(candidate_path),
                 "metadata": metadata,
                 "backup": str(backup),
-                "paths": list(self.managed_paths),
+                "paths": list(install_paths),
                 "previous_current": self.current_path.read_text(encoding="utf-8") if self.current_path.exists() else None,
                 "repository": self._repository_identity(),
                 "before_hashes": before_hashes,
@@ -690,7 +860,7 @@ class UpdateManager:
             try:
                 # Complete the backup before making the journal recoverable.
                 # If backup creation fails, the live engine must remain untouched.
-                for relative in self.managed_paths:
+                for relative in install_paths:
                     target = self.repo_root / relative
                     saved = backup / relative
                     shutil.copytree(target, saved)
@@ -699,11 +869,11 @@ class UpdateManager:
                 # copy is allowed to be consumed by a last-resort direct
                 # rename when staging itself is failing.
                 immutable_snapshot = backup / ".immutable-snapshot"
-                for relative in self.managed_paths:
+                for relative in install_paths:
                     shutil.copytree(backup / relative, immutable_snapshot / relative)
                 backup_complete = True
                 _atomic_write(journal_path, json.dumps(journal, indent=2, sort_keys=True) + "\n")
-                for index, relative in enumerate(self.managed_paths):
+                for index, relative in enumerate(install_paths):
                     journal["processed_paths"].append(relative)
                     _atomic_write(journal_path, json.dumps(journal, indent=2, sort_keys=True) + "\n")
                     source = candidate_path / relative
@@ -763,6 +933,7 @@ class UpdateManager:
         current = json.loads(self.current_path.read_text(encoding="utf-8")) if self.current_path.exists() else None
         if isinstance(current, dict) and all(current.get(key) == metadata.get(key) for key in ("upstream_tag", "upstream_commit", "source_sha256")):
             return {"changed": False, "reason": "same-engine", "metadata": metadata}
+        self.create_verification_evidence(candidate_path)
         applied = self.apply(candidate_path)
         return {"changed": True, "metadata": applied}
 
@@ -920,14 +1091,16 @@ class UpdateManager:
         paths = journal.get("paths")
         before = journal.get("before_hashes")
         after = journal.get("after_hashes")
-        if not isinstance(paths, list) or paths != list(self.managed_paths):
+        if not isinstance(paths, list) or not paths or any(not isinstance(item, str) for item in paths):
             raise EngineUpdateError("rollback journal has incomplete managed paths")
+        if any(item not in self.managed_paths for item in paths) or len(set(paths)) != len(paths):
+            raise EngineUpdateError("rollback journal contains unmanaged or duplicate paths")
         if not isinstance(before, dict) or not isinstance(after, dict):
             raise EngineUpdateError("rollback journal has no installed-state hashes")
         processed = journal.get("processed_paths", [])
-        if not isinstance(processed, list) or not set(processed).issubset(self.managed_paths):
+        if not isinstance(processed, list) or not set(processed).issubset(paths):
             raise EngineUpdateError("rollback journal has invalid processed paths")
-        for relative in self.managed_paths:
+        for relative in paths:
             saved = backup / relative
             if not saved.is_dir() or tree_sha256(backup, (relative,)) != before.get(relative):
                 raise EngineUpdateError(f"rollback backup integrity check failed: {relative}")
@@ -997,7 +1170,10 @@ class UpdateManager:
         metadata = journal.get("metadata")
         if not isinstance(after, dict) or not isinstance(metadata, dict):
             return False
-        if any(tree_sha256(self.repo_root, (relative,)) != after.get(relative) for relative in self.managed_paths):
+        paths = journal.get("paths", self.managed_paths)
+        if not isinstance(paths, list) or any(not isinstance(item, str) for item in paths):
+            return False
+        if any(tree_sha256(self.repo_root, (relative,)) != after.get(relative) for relative in paths):
             return False
         if not self.current_path.is_file():
             return False

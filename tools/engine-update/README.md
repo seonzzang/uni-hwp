@@ -3,7 +3,12 @@
 This directory contains the reusable, library/CLI-oriented foundation for
 updating the embedded RHWP engine while keeping Uni-HWP product code outside
 the update boundary. The managed paths are `src/` and `pkg/`; project
-manifests and app code are intentionally not touched.
+manifests and app code are intentionally not touched. For the current
+WASM/Tauri runtime, an upstream release is installed with `install_paths:
+["pkg"]`: the generated runtime is replaced atomically while the Uni-HWP
+Rust source tree remains on its product-controlled revision. `pkg/` is
+generated output: `prepare-latest` creates it with `wasm-pack` inside the
+isolated candidate after cloning the tagged upstream source.
 
 Each candidate requires immutable provenance metadata:
 
@@ -32,12 +37,16 @@ python tools/engine-update/cli.py rollback
 `latest` resolves the latest stable release from the official RHWP upstream.
 `prepare-latest` clones that tagged release into an isolated staging area,
 pins its commit and managed-tree hash, and creates an immutable candidate.
+The candidate also records `engine_version` and the policy-derived
+`product_version` (`RHWP v0.8.6` -> `Uni-HWP 8.6.0`). The About dialog reads
+the installed pointer after restart, so the displayed product and engine
+versions move together automatically.
 `update` applies a candidate (or prepares the latest stable release first) and
 returns a no-op when its pinned tag, commit, and managed-tree hash already
 match the installed engine.
-`apply` takes an exclusive lock, refuses managed-path dirty trees, records a
-rollback journal, and restores the previous engine if any installation step
-fails. Before installation it also checks required artifacts, an optional API
+`apply` takes an exclusive lock, refuses dirty paths selected by the candidate,
+records a rollback journal, and restores the previous engine if any
+installation step fails. Before installation it also checks required artifacts, an optional API
 compatibility manifest, and the managed-tree execution smoke gate. Candidate
 and journal state remains under this directory; unrelated user changes remain
 outside the managed `src/` and `pkg/` boundary.
