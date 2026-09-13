@@ -12,6 +12,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import productData from '../assets/product-info.json';
 
+// Engine update implementation is retained for the compatibility pipeline,
+// but must not be user-triggered until a compatible-release policy is ready.
+const ENGINE_UPDATE_ENABLED = false;
+
 export class AboutDialog extends ModalDialog {
   private readonly runtimeEngineVersion?: string;
 
@@ -65,7 +69,7 @@ export class AboutDialog extends ModalDialog {
     versionDisplay.style.fontWeight = '600';
     const runtimeProductVersion = productData.version;
     const runtimeEngineVersion = this.runtimeEngineVersion ?? productData.engineVersion;
-    versionDisplay.textContent = `VERSION ${runtimeProductVersion}`;
+    versionDisplay.textContent = `VERSION ${productData.fullVersion}`;
     brandHeader.appendChild(versionDisplay);
     body.appendChild(brandHeader);
 
@@ -98,7 +102,8 @@ export class AboutDialog extends ModalDialog {
       ${renderHeader(1, '제품 및 제조사 정보')}
       <div style="margin-left: 4px; margin-bottom: 24px;">
         <div style="margin-bottom: 4px;">${trans('제품명 Product:', productData.productName)}</div>
-        <div id="product-version-line" style="margin-bottom: 4px;">${trans('버전 Version:', runtimeProductVersion)}</div>
+        <div id="full-version-line" style="margin-bottom: 4px;">${trans('통합 버전 Uni-HWP:', productData.fullVersion)}</div>
+        <div id="product-version-line" style="margin-bottom: 4px;">${trans('외피/API 버전:', runtimeProductVersion)}</div>
         <div id="engine-version-line" style="margin-bottom: 4px;">${trans('엔진 Engine:', runtimeEngineVersion)}</div>
         <div style="margin-bottom: 4px;">
           ${trans('제조사 Manufacturer:', '')}
@@ -222,7 +227,14 @@ export class AboutDialog extends ModalDialog {
     updateButton.style.background = '#fff';
     updateButton.style.color = '#4c6ef5';
     updateButton.style.cursor = 'pointer';
+    if (!ENGINE_UPDATE_ENABLED) {
+      updateButton.disabled = true;
+      updateButton.textContent = '업데이트 기능 준비 중';
+      updateButton.style.cursor = 'not-allowed';
+      updateButton.style.opacity = '0.72';
+    }
     updateButton.addEventListener('click', async () => {
+      if (!ENGINE_UPDATE_ENABLED) return;
       updateButton.disabled = true;
       let stopProgress: UnlistenFn | undefined;
       setUpdateProgress(10, '공식 RHWP 릴리스 확인 중');

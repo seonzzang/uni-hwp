@@ -1,11 +1,12 @@
 {
   "productName": "Uni HWP",
   "version": "0.1.0",
-  "engineVersion": "0.8.4",
+  "fullVersion": "8.8.6",
+  "engineVersion": "0.8.6",
   "manufacturer": {
     "nameKr": "Uni-HWP Studio",
     "nameEn": "Uni-HWP Studio",
-    "url": "https://github.com/seonzzang/uni-hwp"
+    "url": "https://seonzzang.github.io/uni-hwp/"
   },
   "copyright": "Copyright \u00a9 2026 Uni-HWP Studio",
   "sections": {
