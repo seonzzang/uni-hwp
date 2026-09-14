@@ -99,8 +99,8 @@ class EngineUpdateTests(unittest.TestCase):
             root = Path(directory)
             package = root / "apps" / "studio"
             package.mkdir(parents=True)
-            (package / "package.json").write_text(json.dumps({"version": "8.8.6"}), encoding="utf-8")
-            self.assertEqual(current_product_version(root), "8.8.6")
+            (package / "package.json").write_text(json.dumps({"version": "8.6.0"}), encoding="utf-8")
+            self.assertEqual(current_product_version(root), "8.6.0")
 
     def test_prepare_preserves_compatibility_manifest_and_requires_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

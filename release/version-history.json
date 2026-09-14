@@ -1,12 +1,11 @@
 {
   "releases": [
     {
-      "productVersion": "8.8.6",
+      "productVersion": "8.6.0",
       "shellVersion": "0.1.0",
       "engineVersion": "0.8.6",
       "engineTag": "v0.8.6",
-      "releaseTag": "v8.8.6",
-      "legacyReleaseTags": ["v0.1.0"],
+      "releaseTag": "v8.6.0",
       "status": "current"
     },
     {

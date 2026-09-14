@@ -38,7 +38,7 @@ python tools/engine-update/cli.py rollback
 `prepare-latest` clones that tagged release into an isolated staging area,
 pins its commit and managed-tree hash, and creates an immutable candidate.
 The candidate also records `engine_version` and the fixed Uni-HWP outer
-`product_version` (for example, `8.8.6`). The About dialog reads the
+`product_version` (for example, `8.6.0`). The About dialog reads the
 installed pointer after restart for the engine version while keeping the
 outer product version unchanged.
 `update` applies a candidate (or prepares the latest stable release first) and
