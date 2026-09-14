@@ -8,6 +8,8 @@
 - RHWP 엔진: `v0.8.6`
 - 전체 Uni-HWP 식별 버전: `8.6.0`
 
+통합 버전은 RHWP 엔진 버전의 숫자 식별값에 `×10`을 적용합니다. 따라서 RHWP `0.8.6`의 Uni-HWP 통합 버전은 `8.6.0`입니다.
+
 ## 문서 목록
 
 - `RELEASE_DOCUMENT_CLASSIFICATION.md`
