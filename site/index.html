@@ -45,8 +45,11 @@
         .release-legend { display:flex; flex-wrap:wrap; gap:10px 14px; margin:0 0 18px; color:var(--muted-strong); font-size:13px; line-height:1.5; }
         .release-legend span { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid var(--border); border-radius:999px; background:rgba(255,255,255,0.03); }
         .release-legend code { color:#c4b5fd; font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
-        .history-table-wrap { border:1px solid var(--border); border-radius:16px; background:rgba(255,255,255,0.03); overflow:hidden; }
-        .history-table { width:100%; min-width:0; border-collapse:collapse; table-layout:fixed; }
+        .history-table-wrap { border:1px solid var(--border); border-radius:16px; background:rgba(255,255,255,0.03); overflow-x:auto; }
+        .history-table { width:100%; min-width:1040px; border-collapse:collapse; table-layout:fixed; }
+        .history-table th:nth-child(1), .history-table td:nth-child(1) { width:13%; }
+        .history-table th:nth-child(2), .history-table td:nth-child(2) { width:10%; }
+        .history-table th:nth-child(n+3), .history-table td:nth-child(n+3) { width:11%; }
         .history-table thead { background:rgba(255,255,255,0.04); }
         .history-table th,
         .history-table td { min-width:0; padding:14px 12px; border-bottom:1px solid var(--border); vertical-align:top; font-size:13px; overflow-wrap:anywhere; word-break:break-word; }
@@ -55,6 +58,12 @@
         .history-table tr:last-child td { border-bottom:none; }
         .history-table a { color:#c4b5fd; text-decoration:none; font-weight:600; }
         .history-table a:hover { text-decoration:underline; }
+        .history-accordion-row > td { padding:0; background:rgba(255,255,255,0.02); }
+        .history-accordion { padding:0; }
+        .history-accordion summary { cursor:pointer; padding:14px 16px; color:#c4b5fd; font-weight:700; list-style-position:inside; }
+        .history-accordion summary:hover { background:rgba(255,255,255,0.04); }
+        .history-nested-table-wrap { overflow-x:auto; border-top:1px solid var(--border); }
+        .history-nested-table { margin:0; }
         .history-date { font-weight:700; color:#f8fafc; }
         .history-version { margin-top:6px; font-size:12px; color:#a5b4fc; }
         .version-head { font-size:14px; font-weight:800; color:#f8fafc; }
@@ -123,7 +132,7 @@
         <table class="history-table">
             <thead>
                 <tr>
-                    <th class="matrix-corner">버전</th>
+                    <th class="matrix-corner">버전 정보</th>
                     <th>온라인 데모</th>
                     <th>Windows Installer · amd64</th>
                     <th>Windows MSI Installer · amd64</th>

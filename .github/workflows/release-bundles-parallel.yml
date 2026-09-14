@@ -5,11 +5,29 @@ on:
     branches:
       - main
       - "release/**"
-    paths-ignore:
-      - ".github/workflows/release-linux-arm64.yml"
-  schedule:
-    - cron: "17 3 * * 1"
+    paths:
+      - "apps/studio/src/**"
+      - "assets/**"
+      - "bindings/**"
+      - "npm/**"
+      - "samples/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "template/**"
+      - "tests/**"
+      - "ttfs/**"
+      - "typescript/**"
+      - "release/**"
   workflow_dispatch:
+    inputs:
+      release_mode:
+        description: "릴리스 실행 모드"
+        required: true
+        default: validate
+        type: choice
+        options:
+          - validate
+          - publish
 
 permissions:
   contents: write
@@ -33,6 +51,7 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
+      release_mode: ${{ steps.meta.outputs.release_mode }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -42,42 +61,95 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(python -c "import json, pathlib; print(json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version'])")"
+          version="$(python -c "import json, pathlib; print(json.loads(pathlib.Path('apps/studio/src/assets/product-info.json').read_text(encoding='utf-8'))['fullVersion'])")"
           if [ -z "$version" ]; then
-            echo "Unable to resolve version from src-tauri/tauri.conf.json" >&2
+            echo "Unable to resolve Uni-HWP full version from product-info.json" >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "release_mode=${{ inputs.release_mode }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_mode=validate" >> "$GITHUB_OUTPUT"
+          fi
 
-  ensure-release:
-    name: Ensure GitHub release exists
+  preflight:
+    name: Validate release candidate
     needs: prepare-release
     runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.guard.outputs.should_build }}
+      release_key: ${{ steps.guard.outputs.release_key }}
     steps:
-      - name: Create or update release
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate release metadata and deduplicate
+        id: guard
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+          RELEASE_MODE: ${{ needs.prepare-release.outputs.release_mode }}
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" \
-              --repo "${{ github.repository }}" \
-              --target "${GITHUB_SHA}" \
-              --title "$RELEASE_TAG"
-          else
-            gh release create "$RELEASE_TAG" \
-              --repo "${{ github.repository }}" \
-              --target "${GITHUB_SHA}" \
-              --title "$RELEASE_TAG" \
-              --notes ""
+          python tools/check_release_metadata.py --check-engine-tree
+          release_key="${RELEASE_VERSION}|${RELEASE_TAG}|$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineCommit'])")|$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineSourceHash'])")"
+          echo "release_key=$release_key" >> "$GITHUB_OUTPUT"
+          if [ "$RELEASE_MODE" != "publish" ]; then
+            echo "RELEASE_VALIDATION_ONLY: $RELEASE_MODE"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json body --jq .body | grep -Fq "releaseKey: $release_key"; then
+              echo "ALREADY_BUILT: $release_key"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Release $RELEASE_TAG already exists with different provenance." >&2
+            exit 1
+          fi
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+
+  compatibility-check:
+    name: Verify Uni-HWP compatibility
+    needs: [prepare-release, preflight]
+    if: needs.preflight.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check Rust adapter
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/studio/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/studio
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run Studio unit tests
+        run: npm run test:unit --prefix apps/studio
+
+      - name: Validate release metadata
+        run: python tools/check_release_metadata.py --check-engine-tree
 
   build-wasm-pkg:
     name: Build shared WASM pkg
-    needs: prepare-release
+    needs: [prepare-release, preflight, compatibility-check]
+    if: needs.preflight.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -114,7 +186,8 @@ jobs:
 
   build-windows:
     name: Windows x64 installer + portable
-    needs: [prepare-release, ensure-release, build-wasm-pkg]
+    needs: [prepare-release, preflight, compatibility-check, build-wasm-pkg]
+    if: needs.preflight.outputs.should_build == 'true'
     runs-on: windows-2022
     steps:
       - name: Checkout
@@ -199,19 +272,10 @@ jobs:
             dist-release/*.zip
             dist-release/*.sha256
 
-      - name: Upload to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
-        shell: powershell
-        run: |
-          $files = Get-ChildItem "dist-release" -File | ForEach-Object { $_.FullName }
-          if (-not $files) { throw "No Windows release files found to upload." }
-          gh release upload $env:RELEASE_TAG @files --repo "${{ github.repository }}" --clobber
-
   build-macos:
     name: ${{ matrix.name }}
-    needs: [prepare-release, ensure-release, build-wasm-pkg]
+    needs: [prepare-release, preflight, compatibility-check, build-wasm-pkg]
+    if: needs.preflight.outputs.should_build == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -292,18 +356,10 @@ jobs:
           name: ${{ matrix.name }}
           path: |
             dist-release/*
-      - name: Upload to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
-
   build-linux:
     name: Linux x64 AppImage
-    needs: [prepare-release, ensure-release, build-wasm-pkg]
+    needs: [prepare-release, preflight, compatibility-check, build-wasm-pkg]
+    if: needs.preflight.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -354,18 +410,10 @@ jobs:
           name: linux-x64-appimage
           path: |
             dist-release/*
-      - name: Upload to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
-
   build-linux-arm64:
     name: Linux ARM64 AppImage
-    needs: [prepare-release, ensure-release, build-wasm-pkg]
+    needs: [prepare-release, preflight, compatibility-check, build-wasm-pkg]
+    if: needs.preflight.outputs.should_build == 'true'
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
@@ -432,19 +480,91 @@ jobs:
         with:
           name: linux-arm64-appimage
           path: dist-release/*
-      - name: Upload ARM64 to GitHub Release
+  publish-release:
+    name: Publish verified Uni-HWP release
+    needs: [prepare-release, preflight, build-windows, build-macos, build-linux, build-linux-arm64]
+    if: needs.preflight.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: windows-x64-release-bundles
+          path: release-assets
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: macOS *
+          path: release-assets
+          merge-multiple: true
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: linux-*-appimage
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify metadata and release assets
+        id: verify
+        env:
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          metadata = json.loads(Path('release/uni-hwp-release.json').read_text(encoding='utf-8'))
+          if metadata.get('productVersion') != '${{ needs.prepare-release.outputs.version }}':
+              raise SystemExit('productVersion does not match release metadata')
+          if metadata.get('releaseTag') != '${{ needs.prepare-release.outputs.tag }}':
+              raise SystemExit('releaseTag does not match release metadata')
+          if metadata.get('compatibilityStatus') != 'compatible':
+              raise SystemExit('candidate is not marked compatible')
+          if not metadata.get('engineCommit') or not metadata.get('engineSourceHash'):
+              raise SystemExit('engine provenance is incomplete')
+          PY
+          expected=(
+            "Uni-HWP_windows_x64_ko-KR_setup_v${RELEASE_VERSION}.exe"
+            "Uni-HWP_windows_x64_ko-KR_msi_v${RELEASE_VERSION}.msi"
+            "Uni-HWP_windows_x64_ko-KR_portable_v${RELEASE_VERSION}.zip"
+            "Uni-HWP_macos_aarch64_ko-KR_v${RELEASE_VERSION}.dmg"
+            "Uni-HWP_macos_x64_ko-KR_v${RELEASE_VERSION}.dmg"
+            "Uni-HWP_linux_x64_ko-KR_v${RELEASE_VERSION}.AppImage"
+            "Uni-HWP_linux_arm64_ko-KR_v${RELEASE_VERSION}.AppImage"
+          )
+          for name in "${expected[@]}"; do
+            test -s "release-assets/$name"
+            test -s "release-assets/$name.sha256"
+          done
+          release_key="${RELEASE_VERSION}|${RELEASE_TAG}|$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineCommit'])")|$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineSourceHash'])")"
+          echo "release_key=$release_key" >> "$GITHUB_OUTPUT"
+
+      - name: Create release after all builds pass
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+          RELEASE_KEY: ${{ steps.verify.outputs.release_key }}
         shell: bash
-        run: gh release upload "$RELEASE_TAG" dist-release/* --repo "${{ github.repository }}" --clobber
-
-  deploy-site:
-    name: Deploy release site after all platform builds
-    needs: [build-windows, build-macos, build-linux, build-linux-arm64]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch site deployment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run deploy-site.yml --repo "${{ github.repository }}" --ref main
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json body --jq .body | grep -Fq "releaseKey: $RELEASE_KEY"; then
+              echo "ALREADY_BUILT: $RELEASE_KEY"
+              exit 0
+            fi
+            echo "Release tag $RELEASE_TAG already exists with different provenance; refusing to overwrite." >&2
+            exit 1
+          fi
+          shell_version="$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['shellVersion'])")"
+          engine_version="$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineVersion'])")"
+          notes="$(printf 'Uni-HWP 통합 버전: %s\n외피/API 버전: %s\nRHWP 엔진: v%s\nreleaseKey: %s\n' "$RELEASE_VERSION" "$shell_version" "$engine_version" "$RELEASE_KEY")"
+          gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" --target "${GITHUB_SHA}" --title "$RELEASE_TAG" --notes "$notes"
+          gh release upload "$RELEASE_TAG" release-assets/* --repo "${{ github.repository }}"

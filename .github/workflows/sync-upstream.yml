@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: sync-upstream-rhwp
@@ -36,12 +37,24 @@ jobs:
       - name: Validate sync boundary
         run: bash tools/check-upstream-sync-boundary.sh
 
-      - name: Sync upstream source files
+      - name: Resolve latest stable RHWP tag
+        id: sync
         shell: bash
         run: |
           set -euo pipefail
+          sync_ref="$(git ls-remote --tags --refs upstream 'refs/tags/v[0-9]*' | awk -F/ '{print $3}' | sort -V | tail -n 1)"
+          test -n "$sync_ref"
+          echo "sync_ref=$sync_ref" >> "$GITHUB_OUTPUT"
+          echo "Selected RHWP stable tag: $sync_ref"
 
-          sync_ref="v0.8.4"
+      - name: Sync upstream source files
+        shell: bash
+        env:
+          SYNC_REF: ${{ steps.sync.outputs.sync_ref }}
+        run: |
+          set -euo pipefail
+
+          sync_ref="$SYNC_REF"
           sync_paths=(
             "assets"
             "bindings"
@@ -49,7 +62,6 @@ jobs:
             "npm"
             "samples"
             "src"
-            "scripts"
             "template"
             "tests"
             "ttfs"
@@ -66,6 +78,21 @@ jobs:
       - name: Detect changes
         id: changes
         run: |
+          protected=(
+            "scripts/render_release_history.py"
+            "scripts/render_pages_site.py"
+            "site/index.html"
+            "release/uni-hwp-release.json"
+            "release/version-history.json"
+          )
+          for path in "${protected[@]}"; do
+            if git diff --name-only -- "$path" | grep -q .; then
+              echo "Protected product file changed during upstream sync: $path" >&2
+              exit 1
+            fi
+          done
+          test -f scripts/render_release_history.py
+          test -f scripts/render_pages_site.py
           if git diff --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -79,14 +106,22 @@ jobs:
       - name: Commit sync changes
         if: steps.changes.outputs.changed == 'true'
         run: |
+          set -euo pipefail
+          candidate_branch="automation/rhwp-${sync_ref#v}"
+          if git ls-remote --exit-code --heads origin "$candidate_branch" >/dev/null 2>&1; then
+            echo "Candidate branch already exists: $candidate_branch"
+            exit 0
+          fi
+          git switch -c "$candidate_branch"
           git add -A
-          git commit -m "chore: sync upstream RHWP"
-          git push origin HEAD:main
-
-      - name: Trigger release pipeline
-        if: steps.changes.outputs.changed == 'true'
+          git commit -m "chore: sync upstream RHWP ${sync_ref}"
+          git push origin "HEAD:$candidate_branch"
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head "$candidate_branch" \
+            --title "chore: sync upstream RHWP ${sync_ref}" \
+            --body "RHWP 후보 ${sync_ref}를 동기화했습니다. 호환성 검증 통과 후 병합합니다."
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh workflow run ".github/workflows/release-bundles-parallel.yml" --repo "$GITHUB_REPOSITORY" --ref main
+          sync_ref: ${{ steps.sync.outputs.sync_ref }}

@@ -1,0 +1,59 @@
+name: Verify Uni-HWP Compatibility
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "apps/studio/src/**"
+      - "assets/**"
+      - "bindings/**"
+      - "npm/**"
+      - "samples/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "template/**"
+      - "tests/**"
+      - "ttfs/**"
+      - "typescript/**"
+      - "release/**"
+      - "tools/check_release_metadata.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Build and test candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check Rust adapter
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/studio/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/studio
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run Studio unit tests
+        run: npm run test:unit --prefix apps/studio
+
+      - name: Validate release metadata shape
+        run: python tools/check_release_metadata.py

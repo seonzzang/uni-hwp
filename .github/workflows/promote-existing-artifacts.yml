@@ -1,0 +1,86 @@
+name: Promote Existing Uni-HWP Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "성공한 Actions 빌드 run ID"
+        required: true
+        type: string
+      release_tag:
+        description: "생성할 Release 태그"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: promote-existing-artifacts-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote verified existing artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download existing artifacts
+        uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: "*"
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify metadata and artifact provenance
+        env:
+          TARGET_TAG: ${{ inputs.release_tag }}
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/check_release_metadata.py --check-engine-tree
+          test "$TARGET_TAG" = "$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['releaseTag'])")"
+          version="$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['productVersion'])")"
+          expected=(
+            "Uni-HWP_windows_x64_ko-KR_setup_v${version}.exe"
+            "Uni-HWP_windows_x64_ko-KR_msi_v${version}.msi"
+            "Uni-HWP_windows_x64_ko-KR_portable_v${version}.zip"
+            "Uni-HWP_macos_aarch64_ko-KR_v${version}.dmg"
+            "Uni-HWP_macos_x64_ko-KR_v${version}.dmg"
+            "Uni-HWP_linux_x64_ko-KR_v${version}.AppImage"
+            "Uni-HWP_linux_arm64_ko-KR_v${version}.AppImage"
+          )
+          for name in "${expected[@]}"; do
+            test -s "release-assets/$name"
+            test -s "release-assets/$name.sha256"
+            (cd release-assets && sha256sum -c "$name.sha256")
+          done
+          echo "Verified existing artifacts from run $SOURCE_RUN_ID"
+
+      - name: Create Release without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_key="$(python -c "import json; m=json.load(open('release/uni-hwp-release.json')); print('|'.join([m['productVersion'],m['releaseTag'],m['engineCommit'],m['engineSourceHash']]))")"
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json body --jq .body | grep -Fq "releaseKey: $release_key"; then
+              echo "ALREADY_BUILT: $release_key"
+              exit 0
+            fi
+            echo "Release tag exists with different provenance; refusing to overwrite." >&2
+            exit 1
+          fi
+          shell_version="$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['shellVersion'])")"
+          engine_version="$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineVersion'])")"
+          notes="$(printf 'Uni-HWP 통합 버전: %s\n외피/API 버전: %s\nRHWP 엔진: v%s\nreleaseKey: %s\n' "$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['productVersion'])")" "$shell_version" "$engine_version" "$release_key")"
+          gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" --target "${GITHUB_SHA}" --title "$RELEASE_TAG" --notes "$notes"
+          gh release upload "$RELEASE_TAG" release-assets/* --repo "${{ github.repository }}"

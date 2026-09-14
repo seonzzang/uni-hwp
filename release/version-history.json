@@ -1,0 +1,45 @@
+{
+  "releases": [
+    {
+      "productVersion": "8.8.6",
+      "shellVersion": "0.1.0",
+      "engineVersion": "0.8.6",
+      "engineTag": "v0.8.6",
+      "releaseTag": "v8.8.6",
+      "legacyReleaseTags": ["v0.1.0"],
+      "status": "current"
+    },
+    {
+      "productVersion": "8.4.0",
+      "shellVersion": "0.0.9",
+      "engineVersion": "0.8.4",
+      "engineTag": "v0.8.4",
+      "releaseTag": "v8.4.0",
+      "status": "historical"
+    },
+    {
+      "productVersion": "8.1.102",
+      "shellVersion": "0.0.8",
+      "engineVersion": "0.7.8",
+      "engineTag": "v0.7.8",
+      "releaseTag": "v8.1.102",
+      "status": "historical"
+    },
+    {
+      "productVersion": "8.1.101",
+      "shellVersion": "0.0.7",
+      "engineVersion": "0.7.8",
+      "engineTag": "v0.7.8",
+      "releaseTag": "v8.1.101",
+      "status": "historical"
+    },
+    {
+      "productVersion": "8.1.100",
+      "shellVersion": "0.0.6",
+      "engineVersion": "0.7.8",
+      "engineTag": "v0.7.8",
+      "releaseTag": "v8.1.100",
+      "status": "historical"
+    }
+  ]
+}

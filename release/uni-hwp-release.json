@@ -1,0 +1,10 @@
+{
+  "productVersion": "8.8.6",
+  "shellVersion": "0.1.0",
+  "engineVersion": "0.8.6",
+  "engineTag": "v0.8.6",
+  "engineCommit": "f1f9c6ae58344ee9368996d3543f76b9345cf227",
+  "engineSourceHash": "git-tree-sha1:6298a1f60f1754bd50bfde542f92fbdd7f02a3b1",
+  "releaseTag": "v8.8.6",
+  "compatibilityStatus": "compatible"
+}

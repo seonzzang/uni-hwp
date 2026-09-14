@@ -4,7 +4,7 @@
 
 - Canonical history: [docs/public/release/VERSION_HISTORY.md](docs/public/release/VERSION_HISTORY.md)
 - Shell/API version: `0.1.0`
-- Current full version: `8.4.0` (test start; engine candidate `v0.8.6` would be `8.6.0`)
-- Current RHWP baseline: `edwardkim/rhwp@v0.8.4` (test start)
+- Current full version: `8.8.6`
+- Current RHWP baseline: `edwardkim/rhwp@v0.8.6`
 
 자세한 변경 사항과 버전별 설명은 위의 canonical 문서를 확인해 주세요.

@@ -1,6 +1,16 @@
 name: Deploy Uni-HWP Site
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "site/index.html"
+      - "site/assets/landing/**"
+      - "scripts/render_release_history.py"
+      - "scripts/render_pages_site.py"
+      - "release/*.json"
+      - "apps/studio/dist/**"
   workflow_dispatch:
   release:
     types: [published]
@@ -33,6 +43,14 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/studio/package-lock.json
+
+      - name: Verify site rendering inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s scripts/render_release_history.py
+          test -s scripts/render_pages_site.py
+          test -s site/index.html
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -68,7 +86,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(python3 -c "import json, pathlib; print(json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text())['version'])")"
+          version="$(python3 -c "import json, pathlib; print(json.loads(pathlib.Path('apps/studio/src/assets/product-info.json').read_text())['fullVersion'])")"
           deploy_time="$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')"
           rm -rf pages-site
           mkdir -p pages-site/demo pages-site/assets/landing
