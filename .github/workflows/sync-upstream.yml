@@ -1,8 +1,6 @@
 name: Sync upstream RHWP
 
 on:
-  schedule:
-    - cron: "17 3 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -47,7 +45,44 @@ jobs:
           echo "sync_ref=$sync_ref" >> "$GITHUB_OUTPUT"
           echo "Selected RHWP stable tag: $sync_ref"
 
+          current_tag="$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineTag'])")"
+          if [ "$current_tag" = "$sync_ref" ]; then
+            upstream_commit="$(git rev-parse "${sync_ref}^{commit}")"
+            recorded_commit="$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineCommit'])")"
+            upstream_tree_hash="$(git ls-tree -r "$sync_ref" -- assets bindings npm samples src template tests ttfs typescript | git hash-object --stdin)"
+            recorded_tree_hash="$(python -c "import json; print(json.load(open('release/uni-hwp-release.json'))['engineSourceHash'].removeprefix('git-tree-sha1:'))")"
+
+            if [ "$recorded_commit" != "$upstream_commit" ] || [ "$recorded_tree_hash" != "$upstream_tree_hash" ]; then
+              echo "ENGINE_PROVENANCE_MISMATCH: recorded $current_tag does not match the upstream source tree." >&2
+              echo "Recorded commit: $recorded_commit" >&2
+              echo "Upstream commit: $upstream_commit" >&2
+              echo "Recorded tree: $recorded_tree_hash" >&2
+              echo "Upstream tree: $upstream_tree_hash" >&2
+              exit 1
+            fi
+
+            python tools/check_release_metadata.py --check-engine-tree
+            echo "action=no_update" >> "$GITHUB_OUTPUT"
+            echo "NO_UPDATE: $sync_ref is already fully represented by the locked engine provenance."
+          else
+            echo "action=sync" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify Actions PR permission before candidate sync
+        if: steps.sync.outputs.action == 'sync'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          can_approve="$(gh api "repos/$GITHUB_REPOSITORY/actions/permissions" --jq '.can_approve_pull_request_reviews // false')"
+          if [ "$can_approve" != "true" ]; then
+            echo "ACTIONS_PR_PERMISSION_REQUIRED: enable the repository setting allowing Actions to create and approve pull requests before syncing a candidate." >&2
+            exit 1
+          fi
+
       - name: Sync upstream source files
+        if: steps.sync.outputs.action == 'sync'
         shell: bash
         env:
           SYNC_REF: ${{ steps.sync.outputs.sync_ref }}
@@ -77,6 +112,7 @@ jobs:
 
       - name: Detect changes
         id: changes
+        if: steps.sync.outputs.action == 'sync'
         run: |
           protected=(
             "scripts/render_release_history.py"
@@ -100,11 +136,11 @@ jobs:
           fi
 
       - name: Inspect diff
-        if: steps.changes.outputs.changed == 'true'
+        if: steps.sync.outputs.action == 'sync' && steps.changes.outputs.changed == 'true'
         run: git diff --stat
 
       - name: Commit sync changes
-        if: steps.changes.outputs.changed == 'true'
+        if: steps.sync.outputs.action == 'sync' && steps.changes.outputs.changed == 'true'
         run: |
           set -euo pipefail
           candidate_branch="automation/rhwp-${sync_ref#v}"
